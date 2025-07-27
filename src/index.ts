@@ -130,7 +130,6 @@ ${chalk.bold('happy')} - Claude Code session sharing
 ${chalk.bold('Usage:')}
   happy [options]
   happy logout     Logs out of your account and removes data directory
-  happy daemon     Manage the background daemon (macOS only)
 
 ${chalk.bold('Options:')}
   -h, --help              Show this help message
@@ -138,12 +137,6 @@ ${chalk.bold('Options:')}
   -m, --model <model>     Claude model to use (default: sonnet)
   -p, --permission-mode   Permission mode: auto, default, or plan
   --auth, --login         Force re-authentication
-
-  [Daemon Management]
-  --happy-daemon-start    Start the daemon in background
-  --happy-daemon-stop     Stop the daemon
-  --happy-daemon-install  Install daemon to run on startup
-  --happy-daemon-uninstall  Uninstall daemon from startup
 
   [Advanced]
   --local < global | local >
@@ -176,57 +169,6 @@ ${chalk.bold('Examples:')}
         process.exit(1);
       }
       credentials = res;
-    }
-
-    // Onboarding flow for daemon installation
-    const settings = await readSettings() || { onboardingCompleted: false };
-    if (settings.daemonAutoStartWhenRunningHappy === undefined) {
-
-      console.log(chalk.cyan('\n🚀 Happy Daemon Setup\n'));
-      // Ask about daemon auto-start
-      const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout
-      });
-      
-      console.log(chalk.cyan('\n📱 Happy can run a background service that allows you to:'));
-      console.log(chalk.cyan('  • Spawn new conversations from your phone'));
-      console.log(chalk.cyan('  • Continue closed conversations remotely'));
-      console.log(chalk.cyan('  • Work with Claude while your computer has internet\n'));
-      
-      const answer = await new Promise<string>((resolve) => {
-        rl.question(chalk.green('Would you like Happy to start this service automatically? (recommended) [Y/n]: '), resolve);
-      });
-      rl.close();
-      
-      const shouldAutoStart = answer.toLowerCase() !== 'n';
-      settings.daemonAutoStartWhenRunningHappy = shouldAutoStart;
-      
-      if (shouldAutoStart) {
-        console.log(chalk.green('✓ Happy will start the background service automatically'));
-        console.log(chalk.gray('  The service will run whenever you use the happy command'));
-      } else {
-        console.log(chalk.yellow('  You can enable this later by running: happy daemon install'));
-      }
-      
-      await writeSettings(settings);
-    }
-
-    // Auto-start daemon if enabled
-    if (settings.daemonAutoStartWhenRunningHappy) {
-      console.log('Starting Happy background service...');
-      if (!isDaemonRunning()) {
-        console.log('Not running, starting...');
-        // Make sure to start detached
-        const happyPath = process.argv[1];
-        const daemonProcess = spawn('node', [happyPath, 'daemon', 'start'], {
-          detached: true,
-          stdio: 'ignore',
-          env: process.env,
-        });
-        daemonProcess.unref();
-        console.log('Starting Happy background service... with pid: ', daemonProcess.pid);
-      }
     }
 
     // Start the CLI
