@@ -2,9 +2,9 @@ name: Smoke Test
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18, 20, 22]
+        node-version: [18, 24]
     
     steps:
     - name: Checkout code
@@ -22,16 +22,16 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
-        cache: 'npm'
+        cache: 'yarn'
         
     - name: Install dependencies
-      run: npm ci
+      run: yarn install --immutable
       
     - name: Build package
-      run: npm run build
+      run: yarn build
       
     - name: Pack package
-      run: npm pack
+      run: yarn pack
       
     - name: Install packed package globally
       run: |
@@ -59,7 +59,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        node-version: [18, 20, 22]
+        node-version: [18, 24]
     
     steps:
     - name: Checkout code
@@ -69,16 +69,16 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
-        cache: 'npm'
+        cache: 'yarn'
         
     - name: Install dependencies
-      run: npm ci
+      run: yarn install --immutable
       
     - name: Build package
-      run: npm run build
+      run: yarn build
       
     - name: Pack package
-      run: npm pack
+      run: yarn pack
       
     - name: Install packed package globally
       shell: cmd
