@@ -89,16 +89,16 @@ jobs:
       shell: cmd
       run: |
         echo Testing happy --help...
-        timeout 30 happy --help
+        happy --help
         if errorlevel 1 (
-          echo Error: happy --help failed or timed out
+          echo Error: happy --help failed
           exit /b 1
         )
         
         echo Testing happy --version...
-        timeout 10 happy --version
+        happy --version
         if errorlevel 1 (
-          echo Error: happy --version failed or timed out
+          echo Error: happy --version failed
           exit /b 1
         )
         
