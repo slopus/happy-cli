@@ -1,0 +1,107 @@
+name: Smoke Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  smoke-test-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Build package
+      run: npm run build
+      
+    - name: Pack package
+      run: npm pack
+      
+    - name: Install packed package globally
+      run: |
+        PACKAGE_FILE=$(ls *.tgz)
+        npm install -g "$PACKAGE_FILE"
+        
+    - name: Test binary execution
+      run: |
+        # Test that the binary starts successfully
+        echo "Testing happy --help..."
+        timeout 30s happy --help || {
+          echo "Error: happy --help failed or timed out"
+          exit 1
+        }
+        
+        echo "Testing happy --version..."
+        timeout 10s happy --version || {
+          echo "Error: happy --version failed or timed out"
+          exit 1
+        }
+        
+        echo "✅ Smoke test passed on Linux!"
+
+  smoke-test-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Build package
+      run: npm run build
+      
+    - name: Pack package
+      run: npm pack
+      
+    - name: Install packed package globally
+      shell: cmd
+      run: |
+        for %%f in (*.tgz) do npm install -g "%%f"
+        
+    - name: Test binary execution
+      shell: cmd
+      run: |
+        echo Testing happy --help...
+        timeout 30 happy --help
+        if errorlevel 1 (
+          echo Error: happy --help failed or timed out
+          exit /b 1
+        )
+        
+        echo Testing happy --version...
+        timeout 10 happy --version
+        if errorlevel 1 (
+          echo Error: happy --version failed or timed out
+          exit /b 1
+        )
+        
+        echo ✅ Smoke test passed on Windows!
+
+# We don't need a smoke test for macOS because most contributors are developing on macOS.

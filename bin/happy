@@ -1,0 +1,11 @@
+#!/bin/sh
+# Happy CLI launcher script for Unix-like systems (including WSL2)
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Navigate to the package root (one level up from bin/)
+PACKAGE_ROOT="$SCRIPT_DIR/.."
+
+# Execute node with the appropriate flags and the main module
+exec node --no-warnings --no-deprecation "$PACKAGE_ROOT/dist/index.mjs" "$@"
