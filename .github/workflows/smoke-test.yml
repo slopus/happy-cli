@@ -90,18 +90,36 @@ jobs:
       run: |
         rem Get npm global prefix and add to PATH
         for /f "tokens=*" %%i in ('npm config get prefix') do set NPM_PREFIX=%%i
-        set PATH=%PATH%;%NPM_PREFIX%
+        set PATH=%NPM_PREFIX%;%PATH%
+        echo NPM_PREFIX: %NPM_PREFIX%
         echo Current PATH: %PATH%
         
-        echo Testing happy --help...
-        happy --help
+        rem Debug: Check if happy exists in various locations
+        echo Checking for happy binary...
+        where happy 2>nul && echo Found happy in PATH || echo happy not found in PATH
+        if exist "%NPM_PREFIX%\happy.cmd" echo Found happy.cmd in NPM_PREFIX
+        if exist "%NPM_PREFIX%\node_modules\.bin\happy.cmd" echo Found happy.cmd in .bin directory
+        dir "%NPM_PREFIX%\*happy*" 2>nul || echo No happy files found in NPM_PREFIX
+        
+        rem Try to run happy directly from NPM_PREFIX if not in PATH
+        if exist "%NPM_PREFIX%\happy.cmd" (
+          echo Testing with direct path...
+          "%NPM_PREFIX%\happy.cmd" --help
+        ) else (
+          echo Testing happy --help...
+          happy --help
+        )
         if errorlevel 1 (
           echo Error: happy --help failed
           exit /b 1
         )
         
-        echo Testing happy --version...
-        happy --version
+        rem Test version
+        if exist "%NPM_PREFIX%\happy.cmd" (
+          "%NPM_PREFIX%\happy.cmd" --version
+        ) else (
+          happy --version
+        )
         if errorlevel 1 (
           echo Error: happy --version failed
           exit /b 1
