@@ -4,6 +4,12 @@ set NODE_NO_WARNINGS=1
 :: Get the directory where this script is located
 set "SCRIPT_DIR=%~dp0"
 
+:: Debug: show where we're looking and what's actually there
+echo === DEBUG INFORMATION ===
+echo Script dir: %SCRIPT_DIR%
+echo Current working directory: %CD%
+echo.
+
 :: Try the relative path first (for local development)
 if exist "%SCRIPT_DIR%..\dist\index.mjs" (
     node --no-warnings --no-deprecation "%SCRIPT_DIR%..\dist\index.mjs" %*
@@ -16,11 +22,6 @@ if exist "%SCRIPT_DIR%node_modules\happy-coder\dist\index.mjs" (
     exit /b %errorlevel%
 )
 
-:: Debug: show where we're looking and what's actually there
-echo === DEBUG INFORMATION ===
-echo Script dir: %SCRIPT_DIR%
-echo Current working directory: %CD%
-echo.
 
 :: Check if node is available
 echo Checking node availability:
@@ -76,4 +77,4 @@ if exist "%SCRIPT_DIR%node_modules" (
 echo.
 echo === END DEBUG ===
 echo Error: Could not locate JavaScript file
-exit /b 1
+exit /b 1
