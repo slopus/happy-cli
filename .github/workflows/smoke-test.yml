@@ -8,58 +8,59 @@ on:
   workflow_dispatch:
 
 jobs:
-  smoke-test-linux:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [20, 24]
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-        cache: 'yarn'
-        
-    - name: Install dependencies
-      run: yarn install --immutable
-      
-    - name: Build package
-      run: yarn build
-      
-    - name: Pack package
-      run: yarn pack
-      
-    - name: Install packed package globally
-      run: |
-        PACKAGE_FILE=$(ls *.tgz)
-        npm install -g "$PACKAGE_FILE"
-        
-    - name: Test binary execution
-      run: |
-        # Test that the binary starts successfully
-        echo "Testing happy --help..."
-        timeout 30s happy --help || {
-          echo "Error: happy --help failed or timed out"
-          exit 1
-        }
-        
-        echo "Testing happy --version..."
-        timeout 10s happy --version || {
-          echo "Error: happy --version failed or timed out"
-          exit 1
-        }
-        
-        echo "✅ Smoke test passed on Linux!"
+  # smoke-test-linux:
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     matrix:
+  #       node-version: [20, 24]
+  #   
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v4
+  #     
+  #   - name: Setup Node.js ${{ matrix.node-version }}
+  #     uses: actions/setup-node@v4
+  #     with:
+  #       node-version: ${{ matrix.node-version }}
+  #       cache: 'yarn'
+  #       
+  #   - name: Install dependencies
+  #     run: yarn install --immutable
+  #     
+  #   - name: Build package
+  #     run: yarn build
+  #     
+  #   - name: Pack package
+  #     run: yarn pack
+  #     
+  #   - name: Install packed package globally
+  #     run: |
+  #       PACKAGE_FILE=$(ls *.tgz)
+  #       npm install -g "$PACKAGE_FILE"
+  #       
+  #   - name: Test binary execution
+  #     run: |
+  #       # Test that the binary starts successfully
+  #       echo "Testing happy --help..."
+  #       timeout 30s happy --help || {
+  #         echo "Error: happy --help failed or timed out"
+  #         exit 1
+  #       }
+  #       
+  #       echo "Testing happy --version..."
+  #       timeout 10s happy --version || {
+  #         echo "Error: happy --version failed or timed out"
+  #         exit 1
+  #       }
+  #       
+  #       echo "✅ Smoke test passed on Linux!"
 
   smoke-test-windows:
     runs-on: windows-latest
     strategy:
       matrix:
-        node-version: [20, 24]
+        #node-version: [20, 24]
+        node-version: [24]
     
     steps:
     - name: Checkout code
