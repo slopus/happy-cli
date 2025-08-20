@@ -85,16 +85,14 @@ jobs:
       run: |
         for %%f in (*.tgz) do npm install -g "%%f"
         
-    - name: Add npm global bin to PATH
-      shell: powershell
-      run: |
-        $npmGlobalPrefix = npm config get prefix
-        echo "npm global prefix: $npmGlobalPrefix"
-        echo "$npmGlobalPrefix" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        
     - name: Test binary execution
       shell: cmd
       run: |
+        rem Get npm global prefix and add to PATH
+        for /f "tokens=*" %%i in ('npm config get prefix') do set NPM_PREFIX=%%i
+        set PATH=%PATH%;%NPM_PREFIX%
+        echo Current PATH: %PATH%
+        
         echo Testing happy --help...
         happy --help
         if errorlevel 1 (
