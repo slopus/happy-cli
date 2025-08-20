@@ -1,6 +1,6 @@
 {
   "name": "happy-coder",
-  "version": "0.7.1-beta.3",
+  "version": "0.7.1-beta.5",
   "description": "Claude Code session sharing CLI",
   "author": "Kirill Dubovitskiy",
   "license": "MIT",
@@ -9,7 +9,7 @@
   "bugs": "https://github.com/slopus/happy-cli/issues",
   "repository": "slopus/happy-cli",
   "bin": {
-    "happy": "./bin/happy"
+    "happy": "./bin/happy.mjs"
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
