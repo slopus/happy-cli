@@ -1,4 +1,4 @@
-@echo off
+@echo on
 set NODE_NO_WARNINGS=1
 
 :: Get the directory where this script is located

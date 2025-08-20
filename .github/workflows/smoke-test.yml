@@ -120,6 +120,8 @@ jobs:
     - name: Test binary execution
       shell: cmd
       run: |
+        @echo on
+        
         rem Get npm global prefix and add to PATH
         for /f "tokens=*" %%i in ('npm config get prefix') do set NPM_PREFIX=%%i
         set PATH=%NPM_PREFIX%;%PATH%
@@ -133,8 +135,17 @@ jobs:
         if exist "%NPM_PREFIX%\node_modules\.bin\happy.cmd" echo Found happy.cmd in .bin directory
         dir "%NPM_PREFIX%\*happy*" 2>nul || echo No happy files found in NPM_PREFIX
         
-        rem Try to run happy directly from NPM_PREFIX if not in PATH
+        rem Debug: Check the actual contents and encoding of the installed file
         if exist "%NPM_PREFIX%\happy.cmd" (
+          echo File size and type:
+          dir "%NPM_PREFIX%\happy.cmd"
+          echo.
+          echo First few lines of the file:
+          type "%NPM_PREFIX%\happy.cmd" | head -5
+          echo.
+          echo Hex dump of first 50 bytes to check line endings:
+          powershell -Command "Get-Content '%NPM_PREFIX%\happy.cmd' -Encoding Byte -TotalCount 50 | ForEach-Object { '{0:X2}' -f $_ } | Join-String -Separator ' '"
+          echo.
           echo Testing with direct path...
           "%NPM_PREFIX%\happy.cmd" --help
         ) else (
