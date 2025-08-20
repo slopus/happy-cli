@@ -76,4 +76,4 @@ if exist "%SCRIPT_DIR%node_modules" (
 echo.
 echo === END DEBUG ===
 echo Error: Could not locate JavaScript file
-exit /b 1
+exit /b 1
