@@ -6,6 +6,27 @@
  * Simple argument parsing without any CLI framework dependencies
  */
 
+// We are stuck using the punycode module because the MCP server for validating
+// permissions uses a library that pulls in punycode
+// ```
+// user@work cli % npm ls punycode
+// happy-coder
+// └─┬ @modelcontextprotocol/sdk@1.17.3
+//   └─┬ ajv@6.12.6
+//     └─┬ uri-js@4.4.1
+//       └── punycode@2.3.1
+// ```
+process.env.NODE_NO_WARNINGS = '1';
+process.env.NODE_OPTIONS+=" --disable-warning=DEP0040"
+process.removeAllListeners('warning');
+process.on('warning', (warning) => {
+  if (warning.name === 'DeprecationWarning' && 
+      warning.message.includes('punycode')) {
+        console.error("Supressing punycode warning")
+    return; // Ignore punycode warnings
+  }
+  console.warn(warning); // Show other warnings
+});
 
 import chalk from 'chalk'
 import { start, StartOptions } from '@/start'
@@ -27,6 +48,7 @@ import { listDaemonSessions, stopDaemonSession } from './daemon/controlClient'
 import { projectPath } from './projectPath'
 import { handleAuthCommand } from './commands/auth'
 import { clearCredentials, clearMachineId, writeCredentials } from './persistence/persistence'
+
 
 
 (async () => {
