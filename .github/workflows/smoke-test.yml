@@ -85,6 +85,38 @@ jobs:
       run: |
         for %%f in (*.tgz) do npm install -g "%%f"
         
+    - name: Debug npm global installation structure
+      shell: cmd
+      run: |
+        for /f "tokens=*" %%i in ('npm config get prefix') do set NPM_PREFIX=%%i
+        echo NPM_PREFIX: %NPM_PREFIX%
+        echo Listing npm prefix directory:
+        dir "%NPM_PREFIX%" 2>nul || echo Failed to list NPM_PREFIX
+        echo.
+        echo Checking for node_modules in npm prefix:
+        if exist "%NPM_PREFIX%\node_modules" (
+          echo Found node_modules directory
+          dir "%NPM_PREFIX%\node_modules" 2>nul
+          echo.
+          echo Checking for happy-coder package:
+          if exist "%NPM_PREFIX%\node_modules\happy-coder" (
+            echo Found happy-coder package
+            dir "%NPM_PREFIX%\node_modules\happy-coder" 2>nul
+            echo.
+            echo Checking for dist directory:
+            if exist "%NPM_PREFIX%\node_modules\happy-coder\dist" (
+              echo Found dist directory
+              dir "%NPM_PREFIX%\node_modules\happy-coder\dist" 2>nul
+            ) else (
+              echo No dist directory found
+            )
+          ) else (
+            echo No happy-coder package found
+          )
+        ) else (
+          echo No node_modules directory found
+        )
+        
     - name: Test binary execution
       shell: cmd
       run: |
