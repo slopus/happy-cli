@@ -17,14 +17,63 @@ if exist "%SCRIPT_DIR%node_modules\happy-coder\dist\index.mjs" (
 )
 
 :: Debug: show where we're looking and what's actually there
+echo === DEBUG INFORMATION ===
 echo Script dir: %SCRIPT_DIR%
-echo Looking for: %SCRIPT_DIR%..\dist\index.mjs (NOT FOUND)
-echo Looking for: %SCRIPT_DIR%node_modules\happy-coder\dist\index.mjs (NOT FOUND)
-echo What's actually here:
-dir "%SCRIPT_DIR%" /b
-if exist "%SCRIPT_DIR%node_modules" (
-    echo node_modules contents:
-    dir "%SCRIPT_DIR%node_modules" /b
+echo Current working directory: %CD%
+echo.
+
+:: Check if node is available
+echo Checking node availability:
+node --version 2>nul && echo Node found: SUCCESS || echo Node found: FAILED
+echo.
+
+:: Check paths
+echo Path 1 (dev): %SCRIPT_DIR%..\dist\index.mjs
+if exist "%SCRIPT_DIR%..\dist\index.mjs" (
+    echo   EXISTS: YES
+) else (
+    echo   EXISTS: NO
 )
+
+echo Path 2 (npm): %SCRIPT_DIR%node_modules\happy-coder\dist\index.mjs
+if exist "%SCRIPT_DIR%node_modules\happy-coder\dist\index.mjs" (
+    echo   EXISTS: YES
+) else (
+    echo   EXISTS: NO
+)
+echo.
+
+echo Script directory contents:
+dir "%SCRIPT_DIR%" /b 2>nul || echo Failed to list script directory
+
+if exist "%SCRIPT_DIR%node_modules" (
+    echo.
+    echo node_modules contents:
+    dir "%SCRIPT_DIR%node_modules" /b 2>nul || echo Failed to list node_modules
+    
+    if exist "%SCRIPT_DIR%node_modules\happy-coder" (
+        echo.
+        echo happy-coder package contents:
+        dir "%SCRIPT_DIR%node_modules\happy-coder" /b 2>nul || echo Failed to list happy-coder
+        
+        if exist "%SCRIPT_DIR%node_modules\happy-coder\dist" (
+            echo.
+            echo happy-coder dist contents:
+            dir "%SCRIPT_DIR%node_modules\happy-coder\dist" /b 2>nul || echo Failed to list dist
+        ) else (
+            echo.
+            echo happy-coder dist directory: NOT FOUND
+        )
+    ) else (
+        echo.
+        echo happy-coder package: NOT FOUND
+    )
+) else (
+    echo.
+    echo node_modules directory: NOT FOUND
+)
+
+echo.
+echo === END DEBUG ===
 echo Error: Could not locate JavaScript file
 exit /b 1
