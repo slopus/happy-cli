@@ -3,7 +3,7 @@ import { logger } from '@/ui/logger';
 import { randomUUID } from 'node:crypto';
 import { loop } from '@/claude/loop';
 import os from 'node:os';
-import { AgentState, Metadata } from '@/api/types';
+import { AgentState, SessionMetadata } from '@happy/shared-types';
 // @ts-ignore
 import packageJson from '../package.json';
 import { registerHandlers } from '@/api/handlers';
@@ -57,7 +57,7 @@ export async function start(credentials: { secret: Uint8Array, token: string }, 
     const machineId = settings?.machineId || 'unknown';
     logger.debug(`Using machineId: ${machineId}`);
 
-    let metadata: Metadata = {
+    let metadata: SessionMetadata = {
         path: workingDirectory,
         host: os.hostname(),
         version: packageJson.version,
@@ -65,7 +65,6 @@ export async function start(credentials: { secret: Uint8Array, token: string }, 
         machineId: machineId,
         homeDir: os.homedir(),
         happyHomeDir: configuration.happyHomeDir,
-        startedFromDaemon: options.startedBy === 'daemon',
         hostPid: process.pid,
         startedBy: options.startedBy || 'terminal'
     };

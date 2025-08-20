@@ -1,7 +1,7 @@
 import { logger } from '@/ui/logger'
 import { EventEmitter } from 'node:events'
 import { io, Socket } from 'socket.io-client'
-import { AgentState, ClientToServerEvents, MessageContent, Metadata, ServerToClientEvents, Session, Update, UserMessage, UserMessageSchema, Usage } from './types'
+import { AgentState, ClientToServerEvents, MessageContent, SessionMetadata, ServerToClientEvents, Session, Update, UserMessage, UserMessageSchema, Usage } from '@happy/shared-types'
 import { decodeBase64, decrypt, encodeBase64, encrypt } from './encryption';
 import { backoff } from '@/utils/time';
 import { configuration } from '@/configuration';
@@ -16,7 +16,7 @@ export class ApiSessionClient extends EventEmitter {
     private readonly token: string;
     private readonly secret: Uint8Array;
     readonly sessionId: string;
-    private metadata: Metadata | null;
+    private metadata: SessionMetadata | null;
     private metadataVersion: number;
     private agentState: AgentState | null;
     private agentStateVersion: number;
@@ -306,15 +306,15 @@ export class ApiSessionClient extends EventEmitter {
      * Update session metadata
      * @param handler - Handler function that returns the updated metadata
      */
-    updateMetadata(handler: (metadata: Metadata) => Metadata) {
+    updateMetadata(handler: (metadata: SessionMetadata) => SessionMetadata) {
         this.metadataLock.inLock(async () => {
             await backoff(async () => {
                 let updated = handler(this.metadata!); // Weird state if metadata is null - should never happen but here we are
                 const answer = await this.socket.emitWithAck('update-metadata', { sid: this.sessionId, expectedVersion: this.metadataVersion, metadata: encodeBase64(encrypt(updated, this.secret)) });
-                if (answer.result === 'success') {
+                if (answer.result === 'success' && answer.metadata && answer.version) {
                     this.metadata = decrypt(decodeBase64(answer.metadata), this.secret);
                     this.metadataVersion = answer.version;
-                } else if (answer.result === 'version-mismatch') {
+                } else if (answer.result === 'version-mismatch' && answer.metadata && answer.version) {
                     if (answer.version > this.metadataVersion) {
                         this.metadataVersion = answer.version;
                         this.metadata = decrypt(decodeBase64(answer.metadata), this.secret);
@@ -337,11 +337,11 @@ export class ApiSessionClient extends EventEmitter {
             await backoff(async () => {
                 let updated = handler(this.agentState || {});
                 const answer = await this.socket.emitWithAck('update-state', { sid: this.sessionId, expectedVersion: this.agentStateVersion, agentState: updated ? encodeBase64(encrypt(updated, this.secret)) : null });
-                if (answer.result === 'success') {
+                if (answer.result === 'success' && answer.version) {
                     this.agentState = answer.agentState ? decrypt(decodeBase64(answer.agentState), this.secret) : null;
                     this.agentStateVersion = answer.version;
                     logger.debug('Agent state updated', this.agentState);
-                } else if (answer.result === 'version-mismatch') {
+                } else if (answer.result === 'version-mismatch' && answer.version) {
                     if (answer.version > this.agentStateVersion) {
                         this.agentStateVersion = answer.version;
                         this.agentState = answer.agentState ? decrypt(decodeBase64(answer.agentState), this.secret) : null;

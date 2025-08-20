@@ -19,14 +19,14 @@ import { spawn } from 'child_process';
 import { existsSync, unlinkSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { configuration } from '@/configuration';
-import { 
-  listDaemonSessions, 
-  stopDaemonSession, 
-  spawnDaemonSession, 
-  stopDaemonHttp, 
-  notifyDaemonSessionStarted 
+import {
+  listDaemonSessions,
+  stopDaemonSession,
+  spawnDaemonSession,
+  stopDaemonHttp,
+  notifyDaemonSessionStarted
 } from '@/daemon/controlClient';
-import { Metadata } from '@/api/types';
+import { SessionMetadata } from '@happy/shared-types';
 
 // Utility to wait for condition
 async function waitFor(
@@ -100,8 +100,8 @@ async function startDaemon(): Promise<{ pid: number }> {
 // Check if dev server is running
 async function isServerHealthy(): Promise<boolean> {
   try {
-    const response = await fetch('http://localhost:3005/', { 
-      signal: AbortSignal.timeout(1000) 
+    const response = await fetch('http://localhost:3005/', {
+      signal: AbortSignal.timeout(1000)
     });
     return response.ok;
   } catch {
@@ -133,7 +133,7 @@ describe.skipIf(!await isServerHealthy())('Daemon Integration Tests', () => {
         // Ignore
       }
     }
-    
+
     // Start fresh daemon for this test
     const daemon = await startDaemon();
     daemonPid = daemon.pid;
@@ -145,20 +145,20 @@ describe.skipIf(!await isServerHealthy())('Daemon Integration Tests', () => {
     if (daemonChild) {
       console.log('[TEST] Stopping daemon after test...');
       daemonChild.kill('SIGTERM');
-      
+
       // Give it a moment to cleanup
       await new Promise(resolve => setTimeout(resolve, 200));
-      
+
       // Force kill if still running
       try {
         daemonChild.kill('SIGKILL');
       } catch {
         // Already dead
       }
-      
+
       daemonChild = null;
     }
-    
+
     // Clean up state file
     if (existsSync(configuration.daemonStateFile)) {
       try {
@@ -167,7 +167,7 @@ describe.skipIf(!await isServerHealthy())('Daemon Integration Tests', () => {
         // Ignore
       }
     }
-    
+
     // Give a moment between tests
     await new Promise(resolve => setTimeout(resolve, 100));
   });
@@ -179,7 +179,7 @@ describe.skipIf(!await isServerHealthy())('Daemon Integration Tests', () => {
 
   it('should handle session-started webhook from terminal session', async () => {
     // Simulate a terminal-started session reporting to daemon
-    const mockMetadata: Metadata = {
+    const mockMetadata: SessionMetadata = {
       path: '/test/path',
       host: 'test-host',
       hostPid: 99999,
@@ -192,7 +192,7 @@ describe.skipIf(!await isServerHealthy())('Daemon Integration Tests', () => {
     // Verify session is tracked
     const sessions = await listDaemonSessions();
     expect(sessions).toHaveLength(1);
-    
+
     const tracked = sessions[0];
     expect(tracked.startedBy).toBe('happy directly - likely by user from terminal');
     expect(tracked.happySessionId).toBe('test-session-123');
@@ -210,10 +210,10 @@ describe.skipIf(!await isServerHealthy())('Daemon Integration Tests', () => {
     const spawnedSession = sessions.find(
       (s: any) => s.pid === response.pid
     );
-    
+
     expect(spawnedSession).toBeDefined();
     expect(spawnedSession.startedBy).toBe('daemon');
-    
+
     // Clean up - stop the spawned session
     expect(spawnedSession.happySessionId).toBeDefined();
     await stopDaemonSession(spawnedSession.happySessionId);
@@ -222,7 +222,7 @@ describe.skipIf(!await isServerHealthy())('Daemon Integration Tests', () => {
   it('should stop a specific session', async () => {
     // First spawn a session
     const spawnResponse = await spawnDaemonSession('/tmp');
-    
+
     expect(spawnResponse.success).toBe(true);
     const pid = spawnResponse.pid;
 
@@ -250,7 +250,7 @@ describe.skipIf(!await isServerHealthy())('Daemon Integration Tests', () => {
 
   it('should handle daemon stop request gracefully', async () => {
     // This test verifies the stop endpoint works
-    
+
     await stopDaemonHttp();
 
     // Wait for daemon to actually stop
@@ -265,7 +265,7 @@ describe.skipIf(!await isServerHealthy())('Daemon Integration Tests', () => {
 
     // Verify metadata file is cleaned up
     await waitFor(async () => !existsSync(configuration.daemonStateFile), 1000);
-    
+
     // The afterEach will clean up and beforeEach will start fresh for next test
   });
 
@@ -296,7 +296,7 @@ describe.skipIf(!await isServerHealthy())('Daemon Integration Tests', () => {
 
     expect(terminalSession).toBeDefined();
     expect(terminalSession.startedBy).toBe('happy directly - likely by user from terminal');
-    
+
     expect(daemonSession).toBeDefined();
     expect(daemonSession.startedBy).toBe('daemon');
 
@@ -363,7 +363,7 @@ describe.skipIf(!await isServerHealthy())('Daemon Integration Tests', () => {
     }
 
     const results = await Promise.all(promises);
-    
+
     // All should succeed
     results.forEach(res => {
       expect(res.success).toBe(true);

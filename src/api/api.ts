@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { logger } from '@/ui/logger'
-import type { AgentState, CreateSessionResponse, Metadata, Session, Machine, MachineMetadata, DaemonState } from '@/api/types'
+import type { AgentState, CreateSessionResponse, SessionMetadata, Session, Machine, MachineMetadata, DaemonState } from '@happy/shared-types'
+import { EncryptedMachineSchema } from '@happy/shared-types'
 import { ApiSessionClient } from './apiSession';
 import { ApiMachineClient } from './apiMachine';
 import { decodeBase64, decrypt, encodeBase64, encrypt } from './encryption';
@@ -21,7 +22,7 @@ export class ApiClient {
   /**
    * Create a new session or load existing one with the given tag
    */
-  async getOrCreateSession(opts: { tag: string, metadata: Metadata, state: AgentState | null }): Promise<Session> {
+  async getOrCreateSession(opts: { tag: string, metadata: SessionMetadata, state: AgentState | null }): Promise<Session> {
     try {
       const response = await axios.post<CreateSessionResponse>(
         `${configuration.serverUrl}/v1/sessions`,
@@ -76,19 +77,28 @@ export class ApiClient {
       return null;
     }
 
+    // Validate the API response
+    const parsed = EncryptedMachineSchema.safeParse(raw);
+    if (!parsed.success) {
+      logger.debug(`[API] Invalid machine data from server:`, parsed.error);
+      throw new Error(`Invalid machine data: ${parsed.error.message}`);
+    }
+    const encryptedMachine = parsed.data;
+
     logger.debug(`[API] Machine ${machineId} fetched from server`);
 
     // Decrypt metadata and daemonState like we do for sessions
     const machine: Machine = {
-      id: raw.id,
-      metadata: raw.metadata ? decrypt(decodeBase64(raw.metadata), this.secret) : null,
-      metadataVersion: raw.metadataVersion || 0,
-      daemonState: raw.daemonState ? decrypt(decodeBase64(raw.daemonState), this.secret) : null,
-      daemonStateVersion: raw.daemonStateVersion || 0,
-      active: raw.active,
-      activeAt: raw.activeAt,
-      createdAt: raw.createdAt,
-      updatedAt: raw.updatedAt
+      id: encryptedMachine.id,
+      seq: encryptedMachine.seq,
+      metadata: encryptedMachine.metadata ? decrypt(decodeBase64(encryptedMachine.metadata), this.secret) : null,
+      metadataVersion: parsed.data.metadataVersion,
+      daemonState: encryptedMachine.daemonState ? decrypt(decodeBase64(encryptedMachine.daemonState), this.secret) : null,
+      daemonStateVersion: encryptedMachine.daemonStateVersion,
+      active: encryptedMachine.active,
+      activeAt: encryptedMachine.activeAt,
+      createdAt: encryptedMachine.createdAt,
+      updatedAt: encryptedMachine.updatedAt
     };
     return machine;
   }
@@ -119,19 +129,28 @@ export class ApiClient {
     );
 
     const raw = response.data.machine;
+
+    // Validate the API response
+    const parsed = EncryptedMachineSchema.safeParse(raw);
+    if (!parsed.success) {
+      logger.debug(`[API] Invalid machine data from server:`, parsed.error);
+      throw new Error(`Invalid machine data: ${parsed.error.message}`);
+    }
+
     logger.debug(`[API] Machine ${opts.machineId} registered/updated with server`);
 
     // Return decrypted machine like we do for sessions
     const machine: Machine = {
-      id: raw.id,
-      metadata: raw.metadata ? decrypt(decodeBase64(raw.metadata), this.secret) : null,
-      metadataVersion: raw.metadataVersion || 0,
-      daemonState: raw.daemonState ? decrypt(decodeBase64(raw.daemonState), this.secret) : null,
-      daemonStateVersion: raw.daemonStateVersion || 0,
-      active: raw.active,
-      activeAt: raw.activeAt,
-      createdAt: raw.createdAt,
-      updatedAt: raw.updatedAt
+      id: parsed.data.id,
+      seq: parsed.data.seq,
+      metadata: parsed.data.metadata ? decrypt(decodeBase64(parsed.data.metadata), this.secret) : null,
+      metadataVersion: parsed.data.metadataVersion,
+      daemonState: parsed.data.daemonState ? decrypt(decodeBase64(parsed.data.daemonState), this.secret) : null,
+      daemonStateVersion: parsed.data.daemonStateVersion,
+      active: parsed.data.active,
+      activeAt: parsed.data.activeAt,
+      createdAt: parsed.data.createdAt,
+      updatedAt: parsed.data.updatedAt
     };
     return machine;
   }

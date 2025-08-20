@@ -5,7 +5,7 @@
 
 import { logger } from '@/ui/logger';
 import { getDaemonState } from './utils';
-import { Metadata } from '@/api/types';
+import { SessionMetadata } from '@happy/shared-types';
 
 async function daemonPost(path: string, body?: any): Promise<any> {
   const state = await getDaemonState();
@@ -20,11 +20,11 @@ async function daemonPost(path: string, body?: any): Promise<any> {
       body: JSON.stringify(body || {}),
       signal: AbortSignal.timeout(5000)
     });
-    
+
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-    
+
     return await response.json();
   } catch (error) {
     logger.debug(`[CONTROL CLIENT] Request failed: ${path}`, error);
@@ -34,7 +34,7 @@ async function daemonPost(path: string, body?: any): Promise<any> {
 
 export async function notifyDaemonSessionStarted(
   sessionId: string,
-  metadata: Metadata
+  metadata: SessionMetadata
 ): Promise<void> {
   await daemonPost('/session-started', {
     sessionId,

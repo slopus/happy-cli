@@ -1,7 +1,7 @@
 import { ApiClient } from '@/api/api';
 import { startDaemonControlServer } from './controlServer';
 import { TrackedSession } from './api/types';
-import { MachineMetadata, DaemonState } from '@/api/types';
+import { MachineMetadata, DaemonState } from '@happy/shared-types';
 import os from 'os';
 import { logger } from '@/ui/logger';
 import { authAndSetupMachineIfNeeded } from '@/ui/auth';
@@ -12,7 +12,7 @@ import packageJson from '../../package.json';
 import { getEnvironmentInfo } from '@/ui/doctor';
 import { spawn } from 'child_process';
 import { projectPath } from '@/projectPath';
-import { Metadata } from '@/api/types';
+import { SessionMetadata } from '@happy/shared-types';
 import { getDaemonState, cleanupDaemonState } from './utils';
 import { writeDaemonState, DaemonLocallyPersistedState } from '@/persistence/persistence';
 
@@ -55,7 +55,7 @@ export async function startDaemon(): Promise<void> {
     const getCurrentChildren = () => Array.from(pidToTrackedSession.values());
 
     // Handle webhook from happy session reporting itself
-    const onHappySessionWebhook = (sessionId: string, sessionMetadata: Metadata) => {
+    const onHappySessionWebhook = (sessionId: string, sessionMetadata: SessionMetadata) => {
       const pid = sessionMetadata.hostPid;
       if (!pid) {
         logger.debug(`[DAEMON RUN] Session webhook missing hostPid for session ${sessionId}`);

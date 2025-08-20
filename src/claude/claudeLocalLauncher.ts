@@ -92,6 +92,8 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
                     claudeArgs: session.claudeArgs,
                 });
 
+                session.clearOneTimeClaudeArgsLikeResume();
+
                 // Normal exit
                 if (!exitReason) {
                     exitReason = 'exit';

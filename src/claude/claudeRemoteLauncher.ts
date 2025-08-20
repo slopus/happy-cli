@@ -282,6 +282,10 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                     },
                     signal: abortController.signal,
                 });
+
+                // Clear one-time flags after successful run
+                session.clearOneTimeClaudeArgsLikeResume();
+
                 if (!exitReason && abortController.signal.aborted) {
                     session.client.sendSessionEvent({ type: 'message', message: 'Aborted by user' });
                 }

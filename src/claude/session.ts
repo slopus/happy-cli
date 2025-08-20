@@ -10,7 +10,7 @@ export class Session {
     readonly client: ApiSessionClient;
     readonly queue: MessageQueue2<EnhancedMode>;
     readonly claudeEnvVars?: Record<string, string>;
-    readonly claudeArgs?: string[];
+    claudeArgs: string[]; // Mutable local Claude args that can be modified during the session
     readonly mcpServers: Record<string, any>;
     readonly _onModeChange: (mode: 'local' | 'remote') => void;
 
@@ -37,7 +37,7 @@ export class Session {
         this.sessionId = opts.sessionId;
         this.queue = opts.messageQueue;
         this.claudeEnvVars = opts.claudeEnvVars;
-        this.claudeArgs = opts.claudeArgs;
+        this.claudeArgs = [...(opts.claudeArgs || [])]; // Make a copy to allow modification
         this.mcpServers = opts.mcpServers;
         this._onModeChange = opts.onModeChange;
 
@@ -69,5 +69,38 @@ export class Session {
     clearSessionId = (): void => {
         this.sessionId = null;
         logger.debug('[Session] Session ID cleared');
+    }
+
+    /**
+     * Clear one-time Claude flags after first use
+     * This includes --resume and --continue which should only be used once
+     */
+    clearOneTimeClaudeArgsLikeResume = (): void => {
+        const oneTimeFlags = ['--resume', '--continue'];
+        const newArgs: string[] = [];
+
+        let skipNext = false;
+        for (let i = 0; i < this.claudeArgs.length; i++) {
+            if (skipNext) {
+                skipNext = false;
+                continue;
+            }
+
+            const arg = this.claudeArgs[i];
+
+            // Check if this is a one-time flag
+            if (oneTimeFlags.includes(arg)) {
+                // Skip this flag and its value if it has one
+                if (arg === '--resume' && i + 1 < this.claudeArgs.length) {
+                    skipNext = true; // Skip the session ID value
+                }
+                logger.debug(`[Session] Cleared one-time flag: ${arg}`);
+                continue;
+            }
+
+            newArgs.push(arg);
+        }
+
+        this.claudeArgs = newArgs;
     }
 }

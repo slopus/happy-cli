@@ -63,6 +63,7 @@
   "dependencies": {
     "@anthropic-ai/claude-code": "^1.0.73",
     "@anthropic-ai/sdk": "^0.56.0",
+    "@happy/shared-types": "file:../happy-shared-types",
     "@modelcontextprotocol/sdk": "^1.15.1",
     "@stablelib/base64": "^2.0.1",
     "@types/http-proxy": "^1.17.16",

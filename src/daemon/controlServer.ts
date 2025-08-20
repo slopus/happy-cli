@@ -7,7 +7,7 @@ import fastify, { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 import { logger } from '@/ui/logger';
-import { Metadata } from '@/api/types';
+import { SessionMetadata } from '@happy/shared-types';
 import { TrackedSession } from './api/types';
 
 export function startDaemonControlServer({
@@ -21,7 +21,7 @@ export function startDaemonControlServer({
   stopSession: (sessionId: string) => boolean;
   spawnSession: (directory: string, sessionId?: string) => Promise<TrackedSession | null>;
   requestShutdown: () => void;
-  onHappySessionWebhook: (sessionId: string, metadata: Metadata) => void;
+  onHappySessionWebhook: (sessionId: string, metadata: SessionMetadata) => void;
 }): Promise<{ port: number; stop: () => Promise<void> }> {
   return new Promise((resolve) => {
     const app = fastify({

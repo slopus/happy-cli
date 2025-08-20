@@ -17,7 +17,7 @@ import os from 'os';
 import { logger } from './logger';
 import packageJson from '../../package.json';
 import { ApiClient } from '@/api/api';
-import { MachineMetadata } from '@/api/types';
+import { MachineMetadata } from '@happy/shared-types';
 
 export async function doAuth(): Promise<{ secret: Uint8Array, token: string } | null> {
     console.clear();
