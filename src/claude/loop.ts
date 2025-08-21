@@ -1,4 +1,4 @@
-import { ApiSessionClient } from "@/api/apiSession"
+import { SessionApiClient as ApiSessionClient } from "@happy/api-client"
 import { MessageQueue2 } from "@/utils/MessageQueue2"
 import { logger } from "@/ui/logger"
 import { Session } from "./session"

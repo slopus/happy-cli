@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 import { logger } from '@/ui/logger';
 import { SessionMetadata } from '@happy/shared-types';
-import { TrackedSession } from './api/types';
+import { TrackedSession } from './types';
 
 export function startDaemonControlServer({
   getChildren,

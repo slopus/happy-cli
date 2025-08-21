@@ -1,4 +1,4 @@
-import { ApiClient } from '@/api/api';
+import { RestApiClient as ApiClient } from '@happy/api-client';
 import { logger } from '@/ui/logger';
 import { randomUUID } from 'node:crypto';
 import { loop } from '@/claude/loop';

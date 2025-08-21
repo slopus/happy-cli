@@ -7,7 +7,7 @@ import { io, Socket } from 'socket.io-client';
 import { logger } from '@/ui/logger';
 import { configuration } from '@/configuration';
 import { MachineMetadata, DaemonState, Machine, Update, UpdateMachineBody } from '@happy/shared-types';
-import { TrackedSession } from '@/daemon/api/types';
+import { TrackedSession } from '@/daemon/types';
 import { encrypt, decrypt, encodeBase64, decodeBase64 } from './encryption';
 import { backoff } from '@/utils/time';
 
