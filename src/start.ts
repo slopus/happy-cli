@@ -1,9 +1,11 @@
-import { ApiClient } from '@/api/api';
+import { RestApiClient } from 'happy-api-client';
 import { logger } from '@/ui/logger';
+import { PushNotificationClient } from '@/api/pushNotifications';
+import { CliLogger } from '@/api/cliLogger';
 import { randomUUID } from 'node:crypto';
 import { loop } from '@/claude/loop';
 import os from 'node:os';
-import { AgentState, Metadata } from '@/api/types';
+import { AgentState, SessionMetadata } from 'happy-api-client';
 // @ts-ignore
 import packageJson from '../package.json';
 import { registerHandlers } from '@/api/handlers';
@@ -48,8 +50,16 @@ export async function start(credentials: { secret: Uint8Array, token: string }, 
         // throw new Error('Daemon-spawned sessions cannot use local/interactive mode');
     }
 
-    // Create session service
-    const api = new ApiClient(credentials.token, credentials.secret);
+    // Create session service with CLI logger
+    const api = new RestApiClient({
+        serverUrl: configuration.serverUrl,
+        token: credentials.token,
+        secret: credentials.secret,
+        logger: new CliLogger()
+    });
+
+    // Create push notification client
+    const pushClient = new PushNotificationClient(credentials.token, configuration.serverUrl);
 
     // Create a new session
     let state: AgentState = {};
@@ -63,7 +73,7 @@ export async function start(credentials: { secret: Uint8Array, token: string }, 
     }
     logger.debug(`Using machineId: ${machineId}`);
 
-    let metadata: Metadata = {
+    let metadata: SessionMetadata = {
         path: workingDirectory,
         host: os.hostname(),
         version: packageJson.version,
@@ -71,7 +81,6 @@ export async function start(credentials: { secret: Uint8Array, token: string }, 
         machineId: machineId,
         homeDir: os.homedir(),
         happyHomeDir: configuration.happyHomeDir,
-        startedFromDaemon: options.startedBy === 'daemon',
         hostPid: process.pid,
         startedBy: options.startedBy || 'terminal'
     };
@@ -79,9 +88,15 @@ export async function start(credentials: { secret: Uint8Array, token: string }, 
     logger.debug(`Session created: ${response.id}`);
 
     // Create machine if it doesn't exist
-    await api.createMachineOrGetExistingAsIs({
+    await api.createOrReturnExistingAsIs({
         machineId,
-        metadata: initialMachineMetadata
+        metadata: initialMachineMetadata,
+        daemonState: {
+            status: 'offline',
+            pid: 0,
+            httpPort: 0,
+            startedAt: Date.now()
+        }
     });
 
     // Always report to daemon if it exists
@@ -329,6 +344,7 @@ export async function start(credentials: { secret: Uint8Array, token: string }, 
         startingMode: options.startingMode,
         messageQueue,
         api,
+        pushClient,
         allowedTools: happyServer.toolNames.map(toolName => `mcp__happy__${toolName}`),
         onModeChange: (newMode) => {
             session.sendSessionEvent({ type: 'switch', mode: newMode });

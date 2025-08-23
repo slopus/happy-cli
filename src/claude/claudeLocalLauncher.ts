@@ -3,6 +3,7 @@ import { claudeLocal } from "./claudeLocal";
 import { Session } from "./session";
 import { Future } from "@/utils/future";
 import { createSessionScanner } from "./utils/sessionScanner";
+import { sendClaudeMessage } from "./utils/sendClaudeMessage";
 
 export async function claudeLocalLauncher(session: Session): Promise<'switch' | 'exit'> {
 
@@ -13,7 +14,7 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
         onMessage: (message) => { 
             // Block SDK summary messages - we generate our own
             if (message.type !== 'summary') {
-                session.client.sendClaudeSessionMessage(message)
+                sendClaudeMessage(session.client, message)
             }
         }
     });
@@ -102,6 +103,8 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
                     mcpServers: session.mcpServers,
                     allowedTools: session.allowedTools,
                 });
+
+                session.clearOneTimeClaudeArgsLikeResume();
 
                 // Normal exit
                 if (!exitReason) {

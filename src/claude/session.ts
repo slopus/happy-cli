@@ -1,16 +1,18 @@
-import { ApiClient, ApiSessionClient } from "@/lib";
+import { RestApiClient, SessionApiClient } from "happy-api-client";
 import { MessageQueue2 } from "@/utils/MessageQueue2";
 import { EnhancedMode } from "./loop";
 import { logger } from "@/ui/logger";
+import { PushNotificationClient } from "@/api/pushNotifications";
 
 export class Session {
     readonly path: string;
     readonly logPath: string;
-    readonly api: ApiClient;
-    readonly client: ApiSessionClient;
+    readonly api: RestApiClient;
+    readonly pushClient: PushNotificationClient;
+    readonly client: SessionApiClient;
     readonly queue: MessageQueue2<EnhancedMode>;
     readonly claudeEnvVars?: Record<string, string>;
-    readonly claudeArgs?: string[];
+    claudeArgs: string[]; // Mutable local Claude args that can be modified during the session
     readonly mcpServers: Record<string, any>;
     readonly allowedTools?: string[];
     readonly _onModeChange: (mode: 'local' | 'remote') => void;
@@ -20,8 +22,9 @@ export class Session {
     thinking: boolean = false;
 
     constructor(opts: {
-        api: ApiClient,
-        client: ApiSessionClient,
+        api: RestApiClient,
+        pushClient: PushNotificationClient,
+        client: SessionApiClient,
         path: string,
         logPath: string,
         sessionId: string | null,
@@ -34,12 +37,13 @@ export class Session {
     }) {
         this.path = opts.path;
         this.api = opts.api;
+        this.pushClient = opts.pushClient;
         this.client = opts.client;
         this.logPath = opts.logPath;
         this.sessionId = opts.sessionId;
         this.queue = opts.messageQueue;
         this.claudeEnvVars = opts.claudeEnvVars;
-        this.claudeArgs = opts.claudeArgs;
+        this.claudeArgs = [...(opts.claudeArgs || [])]; // Make a copy to allow modification
         this.mcpServers = opts.mcpServers;
         this.allowedTools = opts.allowedTools;
         this._onModeChange = opts.onModeChange;
@@ -72,5 +76,38 @@ export class Session {
     clearSessionId = (): void => {
         this.sessionId = null;
         logger.debug('[Session] Session ID cleared');
+    }
+
+    /**
+     * Clear one-time Claude flags after first use
+     * This includes --resume and --continue which should only be used once
+     */
+    clearOneTimeClaudeArgsLikeResume = (): void => {
+        const oneTimeFlags = ['--resume', '--continue'];
+        const newArgs: string[] = [];
+
+        let skipNext = false;
+        for (let i = 0; i < this.claudeArgs.length; i++) {
+            if (skipNext) {
+                skipNext = false;
+                continue;
+            }
+
+            const arg = this.claudeArgs[i];
+
+            // Check if this is a one-time flag
+            if (oneTimeFlags.includes(arg)) {
+                // Skip this flag and its value if it has one
+                if (arg === '--resume' && i + 1 < this.claudeArgs.length) {
+                    skipNext = true; // Skip the session ID value
+                }
+                logger.debug(`[Session] Cleared one-time flag: ${arg}`);
+                continue;
+            }
+
+            newArgs.push(arg);
+        }
+
+        this.claudeArgs = newArgs;
     }
 }

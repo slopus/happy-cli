@@ -105,7 +105,7 @@ export async function startPermissionResolver(session: Session) {
         logger.debug('Permission request' + id + ' ' + JSON.stringify(request));
 
         // Send push notification for permission request
-        session.api.push().sendToAllDevices(
+        session.pushClient.sendToAllDevices(
             'Permission Request',
             `Claude wants to use ${request.name}`,
             {

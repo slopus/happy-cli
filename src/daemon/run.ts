@@ -1,18 +1,19 @@
-import { ApiClient } from '@/api/api';
+import { RestApiClient } from 'happy-api-client';
 import { startDaemonControlServer } from './controlServer';
-import { TrackedSession } from './api/types';
-import { MachineMetadata, DaemonState } from '@/api/types';
+import { TrackedSession } from './types';
+import { MachineMetadata, DaemonState } from 'happy-api-client';
+import { configuration } from '@/configuration';
+import { CliLogger } from '@/api/cliLogger';
 import os from 'os';
 import { logger } from '@/ui/logger';
 import { authAndSetupMachineIfNeeded } from '@/ui/auth';
 import { join } from 'path';
-import { configuration } from '@/configuration';
 import { startCaffeinate, stopCaffeinate } from '@/utils/caffeinate';
 import packageJson from '../../package.json';
 import { getEnvironmentInfo } from '@/ui/doctor';
 import { spawn } from 'child_process';
 import { projectPath } from '@/projectPath';
-import { Metadata } from '@/api/types';
+import { SessionMetadata } from 'happy-api-client';
 import { spawnHappyCLI } from '@/utils/spawnHappyCLI';
 import { getDaemonState, cleanupDaemonState } from './utils';
 import { writeDaemonState, DaemonLocallyPersistedState } from '@/persistence/persistence';
@@ -65,7 +66,7 @@ export async function startDaemon(): Promise<void> {
     const getCurrentChildren = () => Array.from(pidToTrackedSession.values());
 
     // Handle webhook from happy session reporting itself
-    const onHappySessionWebhook = (sessionId: string, sessionMetadata: Metadata) => {
+    const onHappySessionWebhook = (sessionId: string, sessionMetadata: SessionMetadata) => {
       const pid = sessionMetadata.hostPid;
       if (!pid) {
         logger.debug(`[DAEMON RUN] Session webhook missing hostPid for session ${sessionId}`);
@@ -96,7 +97,9 @@ export async function startDaemon(): Promise<void> {
           startedBy: 'happy directly - likely by user from terminal',
           happySessionId: sessionId,
           happySessionMetadataFromLocalWebhook: sessionMetadata,
-          pid
+          pid,
+          directory: process.cwd(),
+          startedAt: Date.now()
         };
         pidToTrackedSession.set(pid, trackedSession);
         logger.debug(`[DAEMON RUN] Registered externally-started session ${sessionId}`);
@@ -139,7 +142,9 @@ export async function startDaemon(): Promise<void> {
         const trackedSession: TrackedSession = {
           startedBy: 'daemon',
           pid: happyProcess.pid,
-          childProcess: happyProcess
+          childProcess: happyProcess,
+          directory: directory,
+          startedAt: Date.now()
         };
 
         pidToTrackedSession.set(happyProcess.pid, trackedSession);
@@ -257,11 +262,16 @@ export async function startDaemon(): Promise<void> {
       startedAt: Date.now()
     };
 
-    // Create API client
-    const api = new ApiClient(credentials.token, credentials.secret);
+    // Create API client with CLI logger
+    const api = new RestApiClient({
+      serverUrl: configuration.serverUrl,
+      token: credentials.token,
+      secret: credentials.secret,
+      logger: new CliLogger()
+    });
 
     // Get or create machine
-    const machine = await api.createMachineOrGetExistingAsIs({
+    const machine = await api.createOrReturnExistingAsIs({
       machineId,
       metadata: initialMachineMetadata,
       daemonState: initialDaemonState
@@ -272,7 +282,7 @@ export async function startDaemon(): Promise<void> {
     const apiMachine = api.machineSyncClient(machine);
 
     // Set RPC handlers
-    apiMachine.setRPCHandlers({
+    apiMachine.setRpcHandlers({
       spawnSession,
       stopSession,
       requestShutdown: () => requestShutdown('happy-app')
