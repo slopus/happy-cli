@@ -22,6 +22,7 @@ import { configuration } from '@/configuration';
 import { getDaemonState } from '@/daemon/utils';
 import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
 import { initialMachineMetadata } from './daemon/run';
+import { startHappyServer } from '@/claude/utils/startHappyServer';
 
 export interface StartOptions {
     model?: string
@@ -128,6 +129,10 @@ export async function start(credentials: { secret: Uint8Array, token: string }, 
 
     // Create realtime session
     const session = api.sessionSyncClient(response);
+    
+    // Start Happy MCP server
+    const happyServer = await startHappyServer(session);
+    logger.debug(`[START] Happy MCP server started at ${happyServer.url}`);
 
     // Print log file path
     const logPath = await logger.logFilePathPromise;
@@ -304,6 +309,9 @@ export async function start(credentials: { secret: Uint8Array, token: string }, 
 
             // Stop caffeinate
             stopCaffeinate();
+            
+            // Stop Happy MCP server
+            happyServer.stop();
 
             logger.debug('[START] Cleanup complete, exiting');
             process.exit(0);
@@ -337,6 +345,7 @@ export async function start(credentials: { secret: Uint8Array, token: string }, 
         messageQueue,
         api,
         pushClient,
+        allowedTools: happyServer.toolNames.map(toolName => `mcp__happy__${toolName}`),
         onModeChange: (newMode) => {
             session.sendSessionEvent({ type: 'switch', mode: newMode });
             session.updateAgentState((currentState) => ({
@@ -347,7 +356,12 @@ export async function start(credentials: { secret: Uint8Array, token: string }, 
         onSessionReady: (sessionInstance) => {
             claudeSession = sessionInstance;
         },
-        mcpServers: {},
+        mcpServers: {
+            'happy': {
+                type: 'http' as const,
+                url: happyServer.url,
+            }
+        },
         session,
         claudeEnvVars: options.claudeEnvVars,
         claudeArgs: options.claudeArgs
@@ -367,6 +381,10 @@ export async function start(credentials: { secret: Uint8Array, token: string }, 
     // Stop caffeinate before exiting
     stopCaffeinate();
     logger.debug('Stopped sleep prevention');
+    
+    // Stop Happy MCP server
+    happyServer.stop();
+    logger.debug('Stopped Happy MCP server');
 
     // Exit
     process.exit(0);

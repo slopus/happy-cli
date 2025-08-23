@@ -11,8 +11,14 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
     const scanner = await createSessionScanner({
         sessionId: session.sessionId,
         workingDirectory: session.path,
-        onMessage: (message) => { sendClaudeMessage(session.client, message) }
+        onMessage: (message) => { 
+            // Block SDK summary messages - we generate our own
+            if (message.type !== 'summary') {
+                sendClaudeMessage(session.client, message)
+            }
+        }
     });
+
 
     // Handle abort
     let exitReason: 'switch' | 'exit' | null = null;
@@ -60,7 +66,10 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
         // When to abort
         session.client.setHandler('abort', doAbort); // Abort current process, clean queue and switch to remote mode
         session.client.setHandler('switch', doSwitch); // When user wants to switch to remote mode
-        session.queue.setOnMessage(doSwitch); // When any message is received, abort current process, clean queue and switch to remote mode
+        session.queue.setOnMessage((message: string, mode) => {
+            // Switch to remote mode when message received
+            doSwitch();
+        }); // When any message is received, abort current process, clean queue and switch to remote mode
 
         // Exit if there are messages in the queue
         if (session.queue.size() > 0) {
@@ -91,6 +100,8 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
                     abort: processAbortController.signal,
                     claudeEnvVars: session.claudeEnvVars,
                     claudeArgs: session.claudeArgs,
+                    mcpServers: session.mcpServers,
+                    allowedTools: session.allowedTools,
                 });
 
                 session.clearOneTimeClaudeArgsLikeResume();
