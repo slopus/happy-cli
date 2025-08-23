@@ -1762,8 +1762,10 @@ gopd@^1.2.0:
   resolved "https://registry.yarnpkg.com/gopd/-/gopd-1.2.0.tgz#89f56b8217bdbc8802bd299df6d7f1081d7e51a1"
   integrity sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==
 
-"happy-api-client@file:../happy-api-client":
+happy-api-client@^0.1.0:
   version "0.1.0"
+  resolved "https://registry.yarnpkg.com/happy-api-client/-/happy-api-client-0.1.0.tgz#2e9c91d32c6945538dd407cac8648f18e0e182c0"
+  integrity sha512-wJzZn7R3/wN6u5xtZTEIGf6EFj7VFjbxOPB0d1A70ipl4/r5amIgJC2znPptvL7d/82DCdbF/XTOoGeUzPxWwA==
   dependencies:
     axios "^1.7.9"
     socket.io-client "^4.8.1"
