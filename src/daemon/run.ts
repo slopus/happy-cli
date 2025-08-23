@@ -1,12 +1,13 @@
-import { RestApiClient as ApiClient } from '@happy/api-client';
+import { RestApiClient } from '@happy/api-client';
 import { startDaemonControlServer } from './controlServer';
 import { TrackedSession } from './types';
 import { MachineMetadata, DaemonState } from '@happy/shared-types';
+import { configuration } from '@/configuration';
+import { CliLogger } from '@/api/cliLogger';
 import os from 'os';
 import { logger } from '@/ui/logger';
 import { authAndSetupMachineIfNeeded } from '@/ui/auth';
 import { join } from 'path';
-import { configuration } from '@/configuration';
 import { startCaffeinate, stopCaffeinate } from '@/utils/caffeinate';
 import packageJson from '../../package.json';
 import { getEnvironmentInfo } from '@/ui/doctor';
@@ -86,7 +87,9 @@ export async function startDaemon(): Promise<void> {
           startedBy: 'happy directly - likely by user from terminal',
           happySessionId: sessionId,
           happySessionMetadataFromLocalWebhook: sessionMetadata,
-          pid
+          pid,
+          directory: process.cwd(),
+          startedAt: Date.now()
         };
         pidToTrackedSession.set(pid, trackedSession);
         logger.debug(`[DAEMON RUN] Registered externally-started session ${sessionId}`);
@@ -133,7 +136,9 @@ export async function startDaemon(): Promise<void> {
         const trackedSession: TrackedSession = {
           startedBy: 'daemon',
           pid: happyProcess.pid,
-          childProcess: happyProcess
+          childProcess: happyProcess,
+          directory: directory,
+          startedAt: Date.now()
         };
 
         pidToTrackedSession.set(happyProcess.pid, trackedSession);
@@ -260,8 +265,13 @@ export async function startDaemon(): Promise<void> {
       startedAt: Date.now()
     };
 
-    // Create API client
-    const api = new ApiClient(credentials.token, credentials.secret);
+    // Create API client with CLI logger
+    const api = new RestApiClient({
+      serverUrl: configuration.serverUrl,
+      token: credentials.token,
+      secret: credentials.secret,
+      logger: new CliLogger()
+    });
 
     // Get or create machine (similar to getOrCreateSession)
     const machine = await api.createOrReturnExistingAsIs({
@@ -275,7 +285,7 @@ export async function startDaemon(): Promise<void> {
     const apiMachine = api.machineSyncClient(machine);
 
     // Set RPC handlers
-    apiMachine.setRPCHandlers({
+    apiMachine.setRpcHandlers({
       spawnSession,
       stopSession,
       requestShutdown: () => requestShutdown('happy-app')

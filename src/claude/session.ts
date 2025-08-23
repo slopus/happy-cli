@@ -1,13 +1,15 @@
-import { ApiClient, ApiSessionClient } from "@/lib";
+import { RestApiClient, SessionApiClient } from "@happy/api-client";
 import { MessageQueue2 } from "@/utils/MessageQueue2";
 import { EnhancedMode } from "./loop";
 import { logger } from "@/ui/logger";
+import { PushNotificationClient } from "@/api/pushNotifications";
 
 export class Session {
     readonly path: string;
     readonly logPath: string;
-    readonly api: ApiClient;
-    readonly client: ApiSessionClient;
+    readonly api: RestApiClient;
+    readonly pushClient: PushNotificationClient;
+    readonly client: SessionApiClient;
     readonly queue: MessageQueue2<EnhancedMode>;
     readonly claudeEnvVars?: Record<string, string>;
     claudeArgs: string[]; // Mutable local Claude args that can be modified during the session
@@ -19,8 +21,9 @@ export class Session {
     thinking: boolean = false;
 
     constructor(opts: {
-        api: ApiClient,
-        client: ApiSessionClient,
+        api: RestApiClient,
+        pushClient: PushNotificationClient,
+        client: SessionApiClient,
         path: string,
         logPath: string,
         sessionId: string | null,
@@ -32,6 +35,7 @@ export class Session {
     }) {
         this.path = opts.path;
         this.api = opts.api;
+        this.pushClient = opts.pushClient;
         this.client = opts.client;
         this.logPath = opts.logPath;
         this.sessionId = opts.sessionId;

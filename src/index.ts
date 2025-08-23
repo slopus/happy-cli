@@ -21,7 +21,9 @@ import { startDaemon } from './daemon/run'
 import { isDaemonRunning, stopDaemon, getDaemonState } from './daemon/utils'
 import { install } from './daemon/install'
 import { uninstall } from './daemon/uninstall'
-import { ApiClient } from './api/api'
+import { RestApiClient } from '@happy/api-client'
+import { PushNotificationClient } from './api/pushNotifications'
+import { configuration } from './configuration'
 import { runDoctorCommand } from './ui/doctor'
 import { listDaemonSessions, stopDaemonSession } from './daemon/controlClient'
 import { projectPath } from './projectPath'
@@ -480,14 +482,14 @@ ${chalk.bold('Examples:')}
   console.log(chalk.blue('📱 Sending push notification...'))
 
   try {
-    // Create API client and send push notification
-    const api = new ApiClient(credentials.token, credentials.secret)
+    // Create push notification client and send
+    const pushClient = new PushNotificationClient(credentials.token, configuration.serverUrl)
 
     // Use custom title or default to "Happy"
     const notificationTitle = title || 'Happy'
 
     // Send the push notification
-    api.push().sendToAllDevices(
+    pushClient.sendToAllDevices(
       notificationTitle,
       message,
       {

@@ -3,6 +3,7 @@ import { claudeLocal } from "./claudeLocal";
 import { Session } from "./session";
 import { Future } from "@/utils/future";
 import { createSessionScanner } from "./utils/sessionScanner";
+import { sendClaudeMessage } from "./utils/sendClaudeMessage";
 
 export async function claudeLocalLauncher(session: Session): Promise<'switch' | 'exit'> {
 
@@ -10,7 +11,7 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
     const scanner = await createSessionScanner({
         sessionId: session.sessionId,
         workingDirectory: session.path,
-        onMessage: (message) => { session.client.sendClaudeSessionMessage(message) }
+        onMessage: (message) => { sendClaudeMessage(session.client, message) }
     });
 
     // Handle abort

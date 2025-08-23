@@ -8,6 +8,7 @@ import { startPermissionResolver } from "./utils/startPermissionResolver";
 import { Future } from "@/utils/future";
 import { SDKAssistantMessage, SDKMessage, SDKUserMessage } from "./sdk";
 import { formatClaudeMessageForInk } from "@/ui/messageFormatterInk";
+import { sendClaudeMessage } from "./utils/sendClaudeMessage";
 import { logger } from "@/ui/logger";
 import { SDKToLogConverter } from "./utils/sdkToLogConverter";
 import { PLAN_FAKE_REJECT } from "./sdk/prompts";
@@ -62,7 +63,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
         workingDirectory: session.path,
         onMessage: (message) => {
             if (message.type === 'summary') {
-                session.client.sendClaudeSessionMessage(message);
+                sendClaudeMessage(session.client, message);
             }
         }
     });
@@ -191,7 +192,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
         if (logMessage) {
             // Filter out system messages - they're usually not sent to logs
             if (logMessage.type !== 'system') {
-                session.client.sendClaudeSessionMessage(logMessage);
+                sendClaudeMessage(session.client, logMessage);
             }
         }
 
@@ -203,7 +204,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                     if (c.type === 'tool_use' && c.name === 'Task' && c.input && typeof (c.input as any).prompt === 'string') {
                         const logMessage2 = sdkToLogConverter.convertSidechainUserMessage(c.id!, (c.input as any).prompt);
                         if (logMessage2) {
-                            session.client.sendClaudeSessionMessage(logMessage2);
+                            sendClaudeMessage(session.client, logMessage2);
                         }
                     }
                 }
@@ -301,7 +302,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                     const converted = sdkToLogConverter.generateInterruptedToolResult(toolCallId, parentToolCallId);
                     if (converted) {
                         logger.debug('[remote]: terminating tool call ' + toolCallId + ' parent: ' + parentToolCallId);
-                        session.client.sendClaudeSessionMessage(converted);
+                        sendClaudeMessage(session.client, converted);
                     }
                 }
                 ongoingToolCalls.clear();

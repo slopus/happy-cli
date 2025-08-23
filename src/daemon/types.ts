@@ -10,4 +10,6 @@ export interface TrackedSession {
     happySessionMetadataFromLocalWebhook?: SessionMetadata;
     pid: number;
     childProcess?: ChildProcess;
+    directory: string;
+    startedAt: number;
 }

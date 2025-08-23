@@ -1,10 +1,11 @@
-import { SessionApiClient as ApiSessionClient } from "@happy/api-client"
+import { SessionApiClient } from "@happy/api-client"
 import { MessageQueue2 } from "@/utils/MessageQueue2"
 import { logger } from "@/ui/logger"
 import { Session } from "./session"
 import { claudeLocalLauncher } from "./claudeLocalLauncher"
 import { claudeRemoteLauncher } from "./claudeRemoteLauncher"
-import { ApiClient } from "@/lib"
+import { RestApiClient } from "@happy/api-client"
+import { PushNotificationClient } from "@/api/pushNotifications"
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
 
@@ -25,8 +26,9 @@ interface LoopOptions {
     startingMode?: 'local' | 'remote'
     onModeChange: (mode: 'local' | 'remote') => void
     mcpServers: Record<string, any>
-    session: ApiSessionClient
-    api: ApiClient,
+    session: SessionApiClient
+    api: RestApiClient,
+    pushClient: PushNotificationClient,
     claudeEnvVars?: Record<string, string>
     claudeArgs?: string[]
     messageQueue: MessageQueue2<EnhancedMode>
@@ -39,6 +41,7 @@ export async function loop(opts: LoopOptions) {
     const logPath = await logger.logFilePathPromise;
     let session = new Session({
         api: opts.api,
+        pushClient: opts.pushClient,
         client: opts.session,
         path: opts.path,
         sessionId: null,

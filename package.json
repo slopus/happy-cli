@@ -75,7 +75,6 @@
     "expo-server-sdk": "^3.15.0",
     "fastify": "^5.5.0",
     "fastify-type-provider-zod": "4.0.2",
-    "happy-api-client": "file:../happy-api-client",
     "http-proxy": "^1.18.1",
     "http-proxy-middleware": "^3.0.5",
     "ink": "^6.1.0",

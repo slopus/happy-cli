@@ -1,5 +1,7 @@
-import { RestApiClient as ApiClient } from '@happy/api-client';
+import { RestApiClient } from '@happy/api-client';
 import { logger } from '@/ui/logger';
+import { PushNotificationClient } from '@/api/pushNotifications';
+import { CliLogger } from '@/api/cliLogger';
 import { randomUUID } from 'node:crypto';
 import { loop } from '@/claude/loop';
 import os from 'node:os';
@@ -46,8 +48,16 @@ export async function start(credentials: { secret: Uint8Array, token: string }, 
         // throw new Error('Daemon-spawned sessions cannot use local/interactive mode');
     }
 
-    // Create session service
-    const api = new ApiClient(credentials.token, credentials.secret);
+    // Create session service with CLI logger
+    const api = new RestApiClient({
+        serverUrl: configuration.serverUrl,
+        token: credentials.token,
+        secret: credentials.secret,
+        logger: new CliLogger()
+    });
+
+    // Create push notification client
+    const pushClient = new PushNotificationClient(credentials.token, configuration.serverUrl);
 
     // Create a new session
     let state: AgentState = {};
@@ -309,6 +319,7 @@ export async function start(credentials: { secret: Uint8Array, token: string }, 
         startingMode: options.startingMode,
         messageQueue,
         api,
+        pushClient,
         onModeChange: (newMode) => {
             session.sendSessionEvent({ type: 'switch', mode: newMode });
             session.updateAgentState((currentState) => ({
