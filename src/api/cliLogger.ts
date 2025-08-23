@@ -1,4 +1,4 @@
-import { Logger } from '@happy/api-client';
+import { Logger } from '@happy-engineering/happy-api-client';
 import { logger as cliLogger } from '@/ui/logger';
 
 /**

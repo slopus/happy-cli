@@ -3,7 +3,7 @@
  * Handles remote procedure calls from mobile clients
  */
 
-import { SessionApiClient as ApiSessionClient } from '@happy/api-client';
+import { SessionApiClient as ApiSessionClient } from '@happy-engineering/happy-api-client';
 import { logger } from '@/ui/logger';
 import { exec, ExecOptions } from 'child_process';
 import { promisify } from 'util';

@@ -1,4 +1,4 @@
-import { RestApiClient } from '@happy/api-client';
+import { RestApiClient } from '@happy-engineering/happy-api-client';
 import { startDaemonControlServer } from './controlServer';
 import { TrackedSession } from './types';
 import { MachineMetadata, DaemonState } from '@happy/shared-types';

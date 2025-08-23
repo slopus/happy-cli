@@ -1,4 +1,4 @@
-import { decodeBase64, encodeBase64, encodeBase64Url } from "@happy/api-client";
+import { decodeBase64, encodeBase64, encodeBase64Url } from "@happy-engineering/happy-api-client";
 import { configuration } from "@/configuration";
 import { randomBytes } from "node:crypto";
 import tweetnacl from 'tweetnacl';
@@ -6,7 +6,7 @@ import axios from 'axios';
 import { displayQRCode } from "./qrcode";
 import { delay } from "@/utils/time";
 import { writeCredentials, readCredentials, updateSettings, readSettings } from "@/persistence/persistence";
-import { generateWebAuthUrl } from "@happy/api-client";
+import { generateWebAuthUrl } from "@happy-engineering/happy-api-client";
 import { openBrowser } from "@/utils/browser";
 import { AuthSelector, AuthMethod } from "./ink/AuthSelector";
 import { render } from 'ink';
@@ -16,7 +16,7 @@ import { hostname } from 'node:os';
 import os from 'os';
 import { logger } from './logger';
 import packageJson from '../../package.json';
-import { RestApiClient as ApiClient } from '@happy/api-client';
+import { RestApiClient as ApiClient } from '@happy-engineering/happy-api-client';
 import { MachineMetadata } from '@happy/shared-types';
 
 export async function doAuth(): Promise<{ secret: Uint8Array, token: string } | null> {

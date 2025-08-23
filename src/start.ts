@@ -1,4 +1,4 @@
-import { RestApiClient } from '@happy/api-client';
+import { RestApiClient } from '@happy-engineering/happy-api-client';
 import { logger } from '@/ui/logger';
 import { PushNotificationClient } from '@/api/pushNotifications';
 import { CliLogger } from '@/api/cliLogger';
