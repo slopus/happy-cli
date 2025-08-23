@@ -1,4 +1,4 @@
-import { RestApiClient, SessionApiClient } from "@happy-engineering/happy-api-client";
+import { RestApiClient, SessionApiClient } from "happy-api-client";
 import { MessageQueue2 } from "@/utils/MessageQueue2";
 import { EnhancedMode } from "./loop";
 import { logger } from "@/ui/logger";

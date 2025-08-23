@@ -5,7 +5,7 @@
 
 import { logger } from '@/ui/logger';
 import { getDaemonState } from './utils';
-import { SessionMetadata } from '@happy/shared-types';
+import { SessionMetadata } from 'happy-api-client';
 
 async function daemonPost(path: string, body?: any): Promise<any> {
   const state = await getDaemonState();

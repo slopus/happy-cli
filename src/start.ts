@@ -1,11 +1,11 @@
-import { RestApiClient } from '@happy-engineering/happy-api-client';
+import { RestApiClient } from 'happy-api-client';
 import { logger } from '@/ui/logger';
 import { PushNotificationClient } from '@/api/pushNotifications';
 import { CliLogger } from '@/api/cliLogger';
 import { randomUUID } from 'node:crypto';
 import { loop } from '@/claude/loop';
 import os from 'node:os';
-import { AgentState, SessionMetadata } from '@happy/shared-types';
+import { AgentState, SessionMetadata } from 'happy-api-client';
 // @ts-ignore
 import packageJson from '../package.json';
 import { registerHandlers } from '@/api/handlers';

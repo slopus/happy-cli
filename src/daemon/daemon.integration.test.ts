@@ -26,7 +26,7 @@ import {
   stopDaemonHttp,
   notifyDaemonSessionStarted
 } from '@/daemon/controlClient';
-import { SessionMetadata } from '@happy/shared-types';
+import { SessionMetadata } from 'happy-api-client';
 
 // Utility to wait for condition
 async function waitFor(

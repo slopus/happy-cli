@@ -1,5 +1,5 @@
-import { SessionApiClient } from '@happy-engineering/happy-api-client';
-import { MessageContent } from '@happy/shared-types';
+import { SessionApiClient } from 'happy-api-client';
+import { MessageContent } from 'happy-api-client';
 import { RawJSONLines } from '@/claude/types';
 
 /**

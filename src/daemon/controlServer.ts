@@ -7,7 +7,7 @@ import fastify, { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 import { logger } from '@/ui/logger';
-import { SessionMetadata } from '@happy/shared-types';
+import { SessionMetadata } from 'happy-api-client';
 import { TrackedSession } from './types';
 
 export function startDaemonControlServer({

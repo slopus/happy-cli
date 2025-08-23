@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod';
-import { MessageMetaSchema } from '@happy-engineering/happy-api-client';
+import { MessageMetaSchema } from 'happy-api-client';
 
 export const UserMessageSchema = z.object({
     role: z.literal('user'),

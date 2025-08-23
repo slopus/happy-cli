@@ -1,7 +1,7 @@
-import { RestApiClient } from '@happy-engineering/happy-api-client';
+import { RestApiClient } from 'happy-api-client';
 import { startDaemonControlServer } from './controlServer';
 import { TrackedSession } from './types';
-import { MachineMetadata, DaemonState } from '@happy/shared-types';
+import { MachineMetadata, DaemonState } from 'happy-api-client';
 import { configuration } from '@/configuration';
 import { CliLogger } from '@/api/cliLogger';
 import os from 'os';
@@ -13,7 +13,7 @@ import packageJson from '../../package.json';
 import { getEnvironmentInfo } from '@/ui/doctor';
 import { spawn } from 'child_process';
 import { projectPath } from '@/projectPath';
-import { SessionMetadata } from '@happy/shared-types';
+import { SessionMetadata } from 'happy-api-client';
 import { spawnHappyCLI } from '@/utils/spawnHappyCLI';
 import { getDaemonState, cleanupDaemonState } from './utils';
 import { writeDaemonState, DaemonLocallyPersistedState } from '@/persistence/persistence';

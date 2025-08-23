@@ -1,4 +1,4 @@
-import { SessionMetadata } from '@happy/shared-types';
+import { SessionMetadata } from 'happy-api-client';
 import { ChildProcess } from 'child_process';
 
 /**

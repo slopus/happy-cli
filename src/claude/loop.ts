@@ -1,10 +1,10 @@
-import { SessionApiClient } from "@happy-engineering/happy-api-client"
+import { SessionApiClient } from "happy-api-client"
 import { MessageQueue2 } from "@/utils/MessageQueue2"
 import { logger } from "@/ui/logger"
 import { Session } from "./session"
 import { claudeLocalLauncher } from "./claudeLocalLauncher"
 import { claudeRemoteLauncher } from "./claudeRemoteLauncher"
-import { RestApiClient } from "@happy-engineering/happy-api-client"
+import { RestApiClient } from "happy-api-client"
 import { PushNotificationClient } from "@/api/pushNotifications"
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
