@@ -54,7 +54,7 @@
     "dev:integration-test-env": "yarn build && tsx --env-file .env.integration-test src/index.ts",
     "prepublishOnly": "yarn build && yarn test",
     "release": "release-it",
-    "postinstall": "node scripts/unpack-tools.cjs"
+    "postinstall": "node scripts/unpack-tools.cjs && node scripts/install_superclaude.js"
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "^1.0.102",
