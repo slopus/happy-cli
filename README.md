@@ -41,3 +41,17 @@ This will:
 ## License
 
 MIT
+
+## SuperClaude Integration
+
+This project is automatically integrated with the SuperClaude framework, which provides enhanced features for Claude Code.
+
+### How it Works
+
+During the installation of `happy-cli` (e.g., via `npm install -g happy-coder`), a `postinstall` script runs automatically. This script attempts to install the SuperClaude framework using `pip` or `pipx`.
+
+The SuperClaude framework integrates with the underlying `claude` command-line tool by modifying the configuration files in the `~/.claude` directory. The `happy-cli` tool is a wrapper around the `claude` command, so it will automatically pick up and use the SuperClaude framework.
+
+**Requirements for SuperClaude:**
+- Python and `pip` or `pipx` must be installed on your system for the automatic installation of SuperClaude to succeed.
+- The `claude` command-line tool requires its own authentication with the Anthropic API. Please ensure you have logged in with `claude` before using it through `happy-cli`.
