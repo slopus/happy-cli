@@ -205,6 +205,16 @@ export class CodexMcpClient {
         logger.debug('[CodexMCP] Session cleared');
     }
 
+    /**
+     * Force close session and clear all state (for permanent shutdown)
+     */
+    async forceCloseSession(): Promise<void> {
+        logger.debug('[CodexMCP] Force closing session');
+        await this.disconnect();
+        this.sessionId = null;
+        logger.debug('[CodexMCP] Session force-closed');
+    }
+
     async disconnect(): Promise<void> {
         if (!this.connected) return;
 
@@ -237,8 +247,9 @@ export class CodexMcpClient {
 
         this.transport = null;
         this.connected = false;
-        this.sessionId = null;
+        // Preserve session ID for potential reconnection
+        // this.sessionId = null;  // ❌ Don't clear session ID immediately
 
-        logger.debug('[CodexMCP] Disconnected');
+        logger.debug(`[CodexMCP] Disconnected, session ${this.sessionId} preserved for reconnection`);
     }
 }
