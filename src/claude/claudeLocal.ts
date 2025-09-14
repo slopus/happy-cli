@@ -7,7 +7,7 @@ import { logger } from "@/ui/logger";
 import { claudeCheckSession } from "./utils/claudeCheckSession";
 import { getProjectPath } from "./utils/path";
 import { projectPath } from "@/projectPath";
-import { systemPrompt } from "./utils/systemPrompt";
+import { getSystemPrompt } from "./utils/systemPrompt";
 
 
 // Get Claude CLI path from project root
@@ -82,7 +82,7 @@ export async function claudeLocal(opts: {
             if (startFrom) {
                 args.push('--resume', startFrom)
             }
-            args.push('--append-system-prompt', systemPrompt);
+            args.push('--append-system-prompt', getSystemPrompt());
 
             if (opts.mcpServers && Object.keys(opts.mcpServers).length > 0) {
                 args.push('--mcp-config', JSON.stringify({ mcpServers: opts.mcpServers }));
