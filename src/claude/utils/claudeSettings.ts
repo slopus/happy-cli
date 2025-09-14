@@ -16,14 +16,21 @@ export interface ClaudeSettings {
 }
 
 /**
+ * Get the path to Claude's settings.json file
+ */
+function getClaudeSettingsPath(): string {
+  const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+  return join(claudeConfigDir, 'settings.json');
+}
+
+/**
  * Read Claude's settings.json file from the default location
  * 
  * @returns Claude settings object or null if file doesn't exist or can't be read
  */
 export function readClaudeSettings(): ClaudeSettings | null {
   try {
-    const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
-    const settingsPath = join(claudeConfigDir, 'settings.json');
+    const settingsPath = getClaudeSettingsPath();
     
     if (!existsSync(settingsPath)) {
       logger.debug(`[ClaudeSettings] No Claude settings file found at ${settingsPath}`);
