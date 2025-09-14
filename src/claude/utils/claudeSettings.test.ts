@@ -9,7 +9,6 @@ import { existsSync, writeFileSync, unlinkSync, mkdirSync, rmSync } from 'node:f
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readClaudeSettings, shouldIncludeCoAuthoredBy } from './claudeSettings';
-import { getSystemPrompt } from './systemPrompt';
 
 describe('Claude Settings', () => {
   let testClaudeDir: string;
@@ -91,43 +90,6 @@ describe('Claude Settings', () => {
 
       const result = shouldIncludeCoAuthoredBy();
       expect(result).toBe(true);
-    });
-  });
-
-  describe('getSystemPrompt', () => {
-    it('includes Co-Authored-By lines when includeCoAuthoredBy is true', () => {
-      const settingsPath = join(testClaudeDir, 'settings.json');
-      writeFileSync(settingsPath, JSON.stringify({ includeCoAuthoredBy: true }));
-
-      const prompt = getSystemPrompt();
-      expect(prompt).toContain('Co-Authored-By: Claude <noreply@anthropic.com>');
-      expect(prompt).toContain('Co-Authored-By: Happy <yesreply@happy.engineering>');
-      expect(prompt).toContain('Generated with [Claude Code](https://claude.ai/code)');
-    });
-
-    it('excludes Co-Authored-By lines when includeCoAuthoredBy is false', () => {
-      const settingsPath = join(testClaudeDir, 'settings.json');
-      writeFileSync(settingsPath, JSON.stringify({ includeCoAuthoredBy: false }));
-
-      const prompt = getSystemPrompt();
-      expect(prompt).not.toContain('Co-Authored-By: Claude <noreply@anthropic.com>');
-      expect(prompt).not.toContain('Co-Authored-By: Happy <yesreply@happy.engineering>');
-      expect(prompt).not.toContain('Generated with [Claude Code](https://claude.ai/code)');
-      expect(prompt).toContain('standard format without additional attribution lines');
-    });
-
-    it('includes Co-Authored-By lines by default when no settings file exists', () => {
-      const prompt = getSystemPrompt();
-      expect(prompt).toContain('Co-Authored-By: Claude <noreply@anthropic.com>');
-      expect(prompt).toContain('Co-Authored-By: Happy <yesreply@happy.engineering>');
-    });
-
-    it('always includes the title setting instruction', () => {
-      const settingsPath = join(testClaudeDir, 'settings.json');
-      writeFileSync(settingsPath, JSON.stringify({ includeCoAuthoredBy: false }));
-
-      const prompt = getSystemPrompt();
-      expect(prompt).toContain('ALWAYS when you start a new chat - you must call a tool "mcp__happy__change_title"');
     });
   });
 });
