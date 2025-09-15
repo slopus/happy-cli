@@ -31,6 +31,7 @@ export const RawJSONLinesSchema = z.discriminatedUnion("type", [
   z.object({
     uuid: z.string(),
     type: z.literal("assistant"),
+    isApiErrorMessage: z.boolean().optional(), // Used for detecting API errors like session limits
     message: z.object({// Entire message used in getMessageKey()
       usage: UsageSchema.optional(), // Used in apiSession.ts
       content: z.any() // Used in tests

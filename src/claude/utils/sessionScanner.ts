@@ -10,6 +10,7 @@ export async function createSessionScanner(opts: {
     sessionId: string | null,
     workingDirectory: string
     onMessage: (message: RawJSONLines) => void
+    onSessionLimit?: (limitMessage: string) => void
 }) {
 
     // Resolve project directory
@@ -51,6 +52,22 @@ export async function createSessionScanner(opts: {
                     continue;
                 }
                 processedMessageKeys.add(key);
+                
+                // Check for session limit errors
+                if (file.type === 'assistant' && file.isApiErrorMessage && opts.onSessionLimit) {
+                    const content = file.message.content;
+                    if (Array.isArray(content)) {
+                        for (const item of content) {
+                            if (item.type === 'text' && typeof item.text === 'string') {
+                                if (item.text.includes('hour limit reached') || item.text.includes('5-hour limit')) {
+                                    logger.debug(`[SESSION_SCANNER] Detected session limit: ${item.text}`);
+                                    opts.onSessionLimit(item.text);
+                                }
+                            }
+                        }
+                    }
+                }
+                
                 opts.onMessage(file);
             }
         }

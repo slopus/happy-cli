@@ -264,6 +264,34 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     /**
+     * Send session limit alert to the Happy app
+     */
+    sendSessionLimitAlert(limitMessage: string) {
+        const content: MessageContent = {
+            role: 'agent',
+            content: {
+                type: 'output',
+                data: {
+                    type: 'session_limit_alert',
+                    message: limitMessage,
+                    timestamp: new Date().toISOString(),
+                    sessionId: this.sessionId
+                }
+            },
+            meta: {
+                sentFrom: 'cli'
+            }
+        };
+        
+        logger.debug(`[SESSION_LIMIT] Sending session limit alert: ${limitMessage}`);
+        const encrypted = encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, content));
+        this.socket.emit('message', {
+            sid: this.sessionId,
+            message: encrypted
+        });
+    }
+
+    /**
      * Send a ping message to keep the connection alive
      */
     keepAlive(thinking: boolean, mode: 'local' | 'remote') {
