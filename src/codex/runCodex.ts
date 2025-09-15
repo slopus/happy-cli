@@ -92,6 +92,12 @@ export async function runCodex(opts: {
         lifecycleStateSince: Date.now(),
         flavor: 'codex'
     };
+
+    // Enhanced debugging for metadata flavor
+    logger.debug(`[CODEX] Session metadata flavor set to: ${metadata.flavor}`);
+    logger.debug(`[CODEX] startedBy: ${opts.startedBy || 'terminal'}`);
+    logger.debugLargeJson('[CODEX] Full metadata:', metadata);
+
     const response = await api.getOrCreateSession({ tag: sessionTag, metadata, state });
     const session = api.sessionSyncClient(response);
 
