@@ -92,6 +92,12 @@ export async function runCodex(opts: {
         lifecycleStateSince: Date.now(),
         flavor: 'codex'
     };
+
+    // Enhanced debugging for metadata flavor
+    logger.debug(`[CODEX] Session metadata flavor set to: ${metadata.flavor}`);
+    logger.debug(`[CODEX] startedBy: ${opts.startedBy || 'terminal'}`);
+    logger.debugLargeJson('[CODEX] Full metadata:', metadata);
+
     const response = await api.getOrCreateSession({ tag: sessionTag, metadata, state });
     const session = api.sessionSyncClient(response);
 
@@ -116,8 +122,37 @@ export async function runCodex(opts: {
     // Track current overrides to apply per message
     let currentPermissionMode: PermissionMode | undefined = undefined;
     let currentModel: string | undefined = undefined;
+    // If we restart (e.g., mode change), use this to carry a resume file
+    let nextExperimentalResume: string | null = null;
 
     session.onUserMessage((message) => {
+        // Handle special commands
+        if (message.content.text.startsWith('/resume')) {
+            logger.debug('[Codex] /resume command received');
+            try {
+                const currentSessionId = client.getSessionId();
+                if (currentSessionId) {
+                    const resumeFile = findCodexResumeFile(currentSessionId);
+                    if (resumeFile) {
+                        // Set resume file for next session start
+                        nextExperimentalResume = resumeFile;
+                        messageBuffer.addMessage('Resume file found - will resume on next session start', 'status');
+                        logger.debug(`[Codex] Resume file set: ${resumeFile}`);
+                    } else {
+                        messageBuffer.addMessage('No resume file found for current session', 'status');
+                        logger.debug('[Codex] No resume file found for /resume command');
+                    }
+                } else {
+                    messageBuffer.addMessage('No active session to resume from', 'status');
+                    logger.debug('[Codex] No session ID available for /resume command');
+                }
+            } catch (error) {
+                messageBuffer.addMessage('Error processing /resume command', 'status');
+                logger.debug('[Codex] Error in /resume command:', error);
+            }
+            return; // Don't process as regular message
+        }
+
         // Resolve permission mode (validate)
         let messagePermissionMode = currentPermissionMode;
         if (message.meta?.permissionMode) {
@@ -179,15 +214,20 @@ export async function runCodex(opts: {
     async function handleAbort() {
         logger.debug('[Codex] Abort requested');
         try {
+            // Cancel current operations gracefully
             abortController.abort();
-            messageQueue.reset();
-            permissionHandler.reset();
             reasoningProcessor.abort();
-            diffProcessor.reset();
-            logger.debug('[Codex] Abort completed');
+
+            // Don't reset core components to preserve session state
+            // messageQueue.reset();     // ❌ Too aggressive - preserves message history
+            // permissionHandler.reset(); // ❌ Too aggressive - preserves permission state
+            // diffProcessor.reset();     // ❌ Too aggressive - preserves diff context
+
+            logger.debug('[Codex] Command cancelled, session state preserved');
         } catch (error) {
             logger.debug('[Codex] Error during abort:', error);
         } finally {
+            // Create new abort controller for next command
             abortController = new AbortController();
         }
     }
@@ -482,8 +522,24 @@ export async function runCodex(opts: {
         let wasCreated = false;
         let currentModeHash: string | null = null;
         let pending: { message: string; mode: EnhancedMode; isolate: boolean; hash: string } | null = null;
-        // If we restart (e.g., mode change), use this to carry a resume file
-        let nextExperimentalResume: string | null = null;
+
+        // Try to resume from previously preserved session if available
+        if (client.hasActiveSession() && !wasCreated) {
+            const preservedSessionId = client.getSessionId();
+            logger.debug(`[Codex] Attempting to resume preserved session ${preservedSessionId}`);
+            try {
+                const resumeFile = findCodexResumeFile(preservedSessionId);
+                if (resumeFile) {
+                    nextExperimentalResume = resumeFile;
+                    messageBuffer.addMessage('Resuming previous session after disconnect…', 'status');
+                    logger.debug(`[Codex] Found resume file for preserved session: ${resumeFile}`);
+                } else {
+                    logger.debug('[Codex] No resume file found for preserved session');
+                }
+            } catch (error) {
+                logger.debug('[Codex] Error finding resume file:', error);
+            }
+        }
 
         while (!shouldExit) {
             logActiveHandles('loop-top');
