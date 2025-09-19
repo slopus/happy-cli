@@ -15,6 +15,11 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
             if (message.type !== 'summary') {
                 session.client.sendClaudeSessionMessage(message)
             }
+        },
+        onSessionLimit: (limitMessage) => {
+            logger.warn(`[SESSION_LIMIT] Claude session limit reached: ${limitMessage}`);
+            // Send a special session limit event to the Happy app
+            session.client.sendSessionLimitAlert(limitMessage);
         }
     });
 

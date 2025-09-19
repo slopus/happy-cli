@@ -144,6 +144,9 @@ export async function startDaemon(): Promise<void> {
     const onHappySessionWebhook = (sessionId: string, sessionMetadata: Metadata) => {
       logger.debugLargeJson(`[DAEMON RUN] Session reported`, sessionMetadata);
 
+      // Enhanced debugging for flavor field
+      logger.debug(`[DAEMON RUN] Session flavor from webhook: ${sessionMetadata.flavor || 'undefined'}`);
+
       const pid = sessionMetadata.hostPid;
       if (!pid) {
         logger.debug(`[DAEMON RUN] Session webhook missing hostPid for sessionId: ${sessionId}`);
@@ -185,6 +188,10 @@ export async function startDaemon(): Promise<void> {
     // Spawn a new session (sessionId reserved for future --resume functionality)
     const spawnSession = async (options: SpawnSessionOptions): Promise<SpawnSessionResult> => {
       logger.debugLargeJson('[DAEMON RUN] Spawning session', options);
+
+      // Enhanced debugging for agent parameter
+      logger.debug(`[DAEMON RUN] Agent parameter received: ${options.agent || 'undefined'}`);
+      logger.debug(`[DAEMON RUN] Will spawn command: ${options.agent === 'claude' ? 'claude' : 'codex'}`);
 
       const { directory, sessionId, machineId, approvedNewDirectoryCreation = true } = options;
       let directoryCreated = false;
@@ -256,12 +263,17 @@ export async function startDaemon(): Promise<void> {
           }
         }
 
-        // Construct arguments for the CLI
+        // Construct arguments for the CLI - default to claude if agent not specified
+        const agentCommand = options.agent || 'claude';
         const args = [
-          options.agent === 'claude' ? 'claude' : 'codex',
+          agentCommand,
           '--happy-starting-mode', 'remote',
           '--started-by', 'daemon'
         ];
+
+        // Enhanced debugging for CLI arguments
+        logger.debug(`[DAEMON RUN] Spawning CLI with command: ${agentCommand}`);
+        logger.debug(`[DAEMON RUN] Full arguments: ${JSON.stringify(args)}`);
 
         // TODO: In future, sessionId could be used with --resume to continue existing sessions
         // For now, we ignore it - each spawn creates a new session
