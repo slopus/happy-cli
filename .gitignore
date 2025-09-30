@@ -24,5 +24,8 @@ pnpm-lock.yaml
 # Local installation
 .happy/
 
+# Serena MCP
+.serena/
+
 **/*.log
-.release-notes-temp.md
+.release-notes-temp.mdpackage-lock.json
