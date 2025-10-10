@@ -1,6 +1,6 @@
 {
   "name": "happy-coder",
-  "version": "0.10.0",
+  "version": "0.11.1",
   "description": "Mobile and Web client for Claude Code and Codex",
   "author": "Kirill Dubovitskiy",
   "license": "MIT",
@@ -60,7 +60,7 @@
     "build": "shx rm -rf dist && npx tsc --noEmit && pkgroll",
     "test": "yarn build && tsx --env-file .env.integration-test node_modules/.bin/vitest run",
     "start": "yarn build && ./bin/happy.mjs",
-    "dev": "tsx --env-file .env.dev src/index.ts",
+    "dev": "tsx src/index.ts",
     "dev:local-server": "yarn build && tsx --env-file .env.dev-local-server src/index.ts",
     "dev:integration-test-env": "yarn build && tsx --env-file .env.integration-test src/index.ts",
     "prepublishOnly": "yarn build && yarn test",
@@ -68,8 +68,8 @@
     "postinstall": "node scripts/unpack-tools.cjs"
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "^1.0.102",
-    "@anthropic-ai/sdk": "^0.56.0",
+    "@anthropic-ai/claude-code": "2.0.1",
+    "@anthropic-ai/sdk": "0.65.0",
     "@modelcontextprotocol/sdk": "^1.15.1",
     "@stablelib/base64": "^2.0.1",
     "@stablelib/hex": "^2.0.1",

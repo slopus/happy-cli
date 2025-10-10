@@ -5,6 +5,7 @@
 
 import { spawn, ChildProcess } from 'child_process'
 import { logger } from '@/ui/logger'
+import { configuration } from '@/configuration'
 
 let caffeinateProcess: ChildProcess | null = null
 
@@ -15,6 +16,12 @@ let caffeinateProcess: ChildProcess | null = null
  * @returns true if caffeinate was started, false otherwise
  */
 export function startCaffeinate(): boolean {
+    // Check if caffeinate is disabled via configuration
+    if (configuration.disableCaffeinate) {
+        logger.debug('[caffeinate] Caffeinate disabled via HAPPY_DISABLE_CAFFEINATE environment variable')
+        return false
+    }
+
     // Only run on macOS
     if (process.platform !== 'darwin') {
         logger.debug('[caffeinate] Not on macOS, skipping caffeinate')
@@ -29,10 +36,9 @@ export function startCaffeinate(): boolean {
 
     try {
         // Spawn caffeinate with flags:
-        // -d: Prevent display from sleeping
         // -i: Prevent system from idle sleeping  
         // -m: Prevent disk from sleeping
-        caffeinateProcess = spawn('caffeinate', ['-dim'], {
+        caffeinateProcess = spawn('caffeinate', ['-im'], {
             stdio: 'ignore',
             detached: false
         })
