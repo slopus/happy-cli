@@ -22,6 +22,7 @@ import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { registerKillSessionHandler } from './registerKillSessionHandler';
 import { projectPath } from '../projectPath';
 import { resolve } from 'node:path';
+import { startSlashCommandsWatcher } from '@/claude/sdk/slashCommandsWatcher';
 
 export interface StartOptions {
     model?: string
@@ -104,12 +105,15 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         logger.debug('[START] Failed to report to daemon (may not be running):', error);
     }
 
+    // Create realtime session
+    const session = api.sessionSyncClient(response);
+
     // Extract SDK metadata in background and update session when ready
     extractSDKMetadataAsync(async (sdkMetadata) => {
         logger.debug('[start] SDK metadata extracted, updating session:', sdkMetadata);
         try {
             // Update session metadata with tools and slash commands
-            api.sessionSyncClient(response).updateMetadata((currentMetadata) => ({
+            session.updateMetadata((currentMetadata) => ({
                 ...currentMetadata,
                 tools: sdkMetadata.tools,
                 slashCommands: sdkMetadata.slashCommands
@@ -118,10 +122,25 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         } catch (error) {
             logger.debug('[start] Failed to update session metadata:', error);
         }
-    });
+    }, workingDirectory);
 
-    // Create realtime session
-    const session = api.sessionSyncClient(response);
+    // Start watching .claude/commands directory for hot-reload
+    const stopSlashCommandsWatcher = startSlashCommandsWatcher({
+        cwd: workingDirectory,
+        onSlashCommandsChange: (slashCommands) => {
+            logger.debug(`[start] Slash commands changed, updating session metadata with ${slashCommands.length} commands`);
+            try {
+                session.updateMetadata((currentMetadata) => ({
+                    ...currentMetadata,
+                    slashCommands
+                }));
+                logger.debug('[start] Session metadata updated with new slash commands');
+            } catch (error) {
+                logger.debug('[start] Failed to update session metadata with new slash commands:', error);
+            }
+        },
+        debounceMs: 300
+    });
 
     // Start Happy MCP server
     const happyServer = await startHappyServer(session);
@@ -280,6 +299,9 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         logger.debug('[START] Received termination signal, cleaning up...');
 
         try {
+            // Stop slash commands watcher
+            stopSlashCommandsWatcher();
+
             // Update lifecycle state to archived before closing
             if (session) {
                 session.updateMetadata((currentMetadata) => ({
@@ -289,7 +311,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                     archivedBy: 'cli',
                     archiveReason: 'User terminated'
                 }));
-                
+
                 // Send session death message
                 session.sendSessionDeath();
                 await session.flush();
@@ -356,6 +378,10 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         claudeEnvVars: options.claudeEnvVars,
         claudeArgs: options.claudeArgs
     });
+
+    // Stop slash commands watcher
+    stopSlashCommandsWatcher();
+    logger.debug('Stopped slash commands watcher');
 
     // Send session death message
     session.sendSessionDeath();
