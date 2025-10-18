@@ -1,4 +1,4 @@
-import { SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-code";
+import { SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { logger } from "@/ui/logger";
 
 /**

@@ -232,8 +232,7 @@ export const MessageMetaSchema = z.object({
   permissionMode: z.string().optional(), // Permission mode for this message
   model: z.string().nullable().optional(), // Model name for this message (null = reset)
   fallbackModel: z.string().nullable().optional(), // Fallback model for this message (null = reset)
-  customSystemPrompt: z.string().nullable().optional(), // Custom system prompt for this message (null = reset)
-  appendSystemPrompt: z.string().nullable().optional(), // Append to system prompt for this message (null = reset)
+  systemPrompt: z.string().nullable().optional(), // System prompt for this message (null = reset)
   allowedTools: z.array(z.string()).nullable().optional(), // Allowed tools for this message (null = reset)
   disallowedTools: z.array(z.string()).nullable().optional() // Disallowed tools for this message (null = reset)
 })

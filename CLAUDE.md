@@ -1,5 +1,52 @@
 # Happy CLI Codebase Overview
 
+## Breaking Changes in v0.12.0
+
+**SDK Migration**: Migrated from `@anthropic-ai/claude-code@2.0.14` to `@anthropic-ai/claude-agent-sdk@^0.1.0`
+
+### System Prompt API Changes
+
+The system prompt configuration has been unified for consistency with the new SDK:
+
+**Before (v0.11.x):**
+```typescript
+interface EnhancedMode {
+    customSystemPrompt?: string;
+    appendSystemPrompt?: string;
+}
+```
+
+**After (v0.12.0):**
+```typescript
+interface EnhancedMode {
+    systemPrompt?: string;  // Single unified field
+}
+```
+
+### Affected Components
+- `src/claude/sdk/types.ts` - QueryOptions interface
+- `src/claude/loop.ts` - EnhancedMode interface
+- `src/api/types.ts` - MessageMetaSchema
+- `src/claude/sdk/query.ts` - CLI argument building
+- `src/claude/claudeRemote.ts` - System prompt logic
+- `src/claude/runClaude.ts` - Message queue and handling
+
+### Migration Strategy
+
+To combine multiple system prompt requirements, concatenate them with newlines:
+
+```typescript
+const systemPrompt = [
+    basePrompt,
+    additionalInstructions
+].filter(Boolean).join('\n\n');
+
+const mode: EnhancedMode = {
+    permissionMode: 'default',
+    systemPrompt
+};
+```
+
 ## Project Overview
 
 Happy CLI (`handy-cli`) is a command-line tool that wraps Claude Code to enable remote control and session sharing. It's part of a three-component system:
@@ -226,3 +273,7 @@ When using --resume:
 2. Original session remains as historical record
 3. All context preserved but under new session identity
 4. Session ID in stream-json output will be the new one, not the resumed one
+
+## Task Master AI Instructions
+**Import Task Master's development workflow commands and guidelines, treat as if import is in the main CLAUDE.md file.**
+@./.taskmaster/CLAUDE.md
