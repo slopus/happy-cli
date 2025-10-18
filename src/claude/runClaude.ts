@@ -149,8 +149,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         isPlan: mode.permissionMode === 'plan',
         model: mode.model,
         fallbackModel: mode.fallbackModel,
-        customSystemPrompt: mode.customSystemPrompt,
-        appendSystemPrompt: mode.appendSystemPrompt,
+        systemPrompt: mode.systemPrompt,
         allowedTools: mode.allowedTools,
         disallowedTools: mode.disallowedTools
     }));
@@ -159,8 +158,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     let currentPermissionMode = options.permissionMode;
     let currentModel = options.model; // Track current model state
     let currentFallbackModel: string | undefined = undefined; // Track current fallback model
-    let currentCustomSystemPrompt: string | undefined = undefined; // Track current custom system prompt
-    let currentAppendSystemPrompt: string | undefined = undefined; // Track current append system prompt
+    let currentSystemPrompt: string | undefined = undefined; // Track current system prompt
     let currentAllowedTools: string[] | undefined = undefined; // Track current allowed tools
     let currentDisallowedTools: string[] | undefined = undefined; // Track current disallowed tools
     session.onUserMessage((message) => {
@@ -191,14 +189,14 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             logger.debug(`[loop] User message received with no model override, using current: ${currentModel || 'default'}`);
         }
 
-        // Resolve custom system prompt - use message.meta.customSystemPrompt if provided, otherwise use current
-        let messageCustomSystemPrompt = currentCustomSystemPrompt;
-        if (message.meta?.hasOwnProperty('customSystemPrompt')) {
-            messageCustomSystemPrompt = message.meta.customSystemPrompt || undefined; // null becomes undefined
-            currentCustomSystemPrompt = messageCustomSystemPrompt;
-            logger.debug(`[loop] Custom system prompt updated from user message: ${messageCustomSystemPrompt ? 'set' : 'reset to none'}`);
+        // Resolve system prompt - use message.meta.systemPrompt if provided, otherwise use current
+        let messageSystemPrompt = currentSystemPrompt;
+        if (message.meta?.hasOwnProperty('systemPrompt')) {
+            messageSystemPrompt = message.meta.systemPrompt || undefined; // null becomes undefined
+            currentSystemPrompt = messageSystemPrompt;
+            logger.debug(`[loop] System prompt updated from user message: ${messageSystemPrompt ? 'set' : 'reset to none'}`);
         } else {
-            logger.debug(`[loop] User message received with no custom system prompt override, using current: ${currentCustomSystemPrompt ? 'set' : 'none'}`);
+            logger.debug(`[loop] User message received with no system prompt override, using current: ${currentSystemPrompt ? 'set' : 'none'}`);
         }
 
         // Resolve fallback model - use message.meta.fallbackModel if provided, otherwise use current fallback model
@@ -209,16 +207,6 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             logger.debug(`[loop] Fallback model updated from user message: ${messageFallbackModel || 'reset to none'}`);
         } else {
             logger.debug(`[loop] User message received with no fallback model override, using current: ${currentFallbackModel || 'none'}`);
-        }
-
-        // Resolve append system prompt - use message.meta.appendSystemPrompt if provided, otherwise use current
-        let messageAppendSystemPrompt = currentAppendSystemPrompt;
-        if (message.meta?.hasOwnProperty('appendSystemPrompt')) {
-            messageAppendSystemPrompt = message.meta.appendSystemPrompt || undefined; // null becomes undefined
-            currentAppendSystemPrompt = messageAppendSystemPrompt;
-            logger.debug(`[loop] Append system prompt updated from user message: ${messageAppendSystemPrompt ? 'set' : 'reset to none'}`);
-        } else {
-            logger.debug(`[loop] User message received with no append system prompt override, using current: ${currentAppendSystemPrompt ? 'set' : 'none'}`);
         }
 
         // Resolve allowed tools - use message.meta.allowedTools if provided, otherwise use current
@@ -250,8 +238,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                 permissionMode: messagePermissionMode || 'default',
                 model: messageModel,
                 fallbackModel: messageFallbackModel,
-                customSystemPrompt: messageCustomSystemPrompt,
-                appendSystemPrompt: messageAppendSystemPrompt,
+                systemPrompt: messageSystemPrompt,
                 allowedTools: messageAllowedTools,
                 disallowedTools: messageDisallowedTools
             };
@@ -266,8 +253,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                 permissionMode: messagePermissionMode || 'default',
                 model: messageModel,
                 fallbackModel: messageFallbackModel,
-                customSystemPrompt: messageCustomSystemPrompt,
-                appendSystemPrompt: messageAppendSystemPrompt,
+                systemPrompt: messageSystemPrompt,
                 allowedTools: messageAllowedTools,
                 disallowedTools: messageDisallowedTools
             };
@@ -276,13 +262,12 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             return;
         }
 
-        // Push with resolved permission mode, model, system prompts, and tools
+        // Push with resolved permission mode, model, system prompt, and tools
         const enhancedMode: EnhancedMode = {
             permissionMode: messagePermissionMode || 'default',
             model: messageModel,
             fallbackModel: messageFallbackModel,
-            customSystemPrompt: messageCustomSystemPrompt,
-            appendSystemPrompt: messageAppendSystemPrompt,
+            systemPrompt: messageSystemPrompt,
             allowedTools: messageAllowedTools,
             disallowedTools: messageDisallowedTools
         };

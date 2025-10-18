@@ -55,6 +55,37 @@ This will:
   to mobile app
 - Claude CLI installed & logged in (`claude` command available in PATH)
 
+## Migration from v0.11.x to v0.12.0
+
+**Version 0.12.0 includes breaking changes** due to the migration from `@anthropic-ai/claude-code` to `@anthropic-ai/claude-agent-sdk`.
+
+### Breaking Changes
+
+The system prompt API has been unified:
+- **Removed**: `customSystemPrompt` and `appendSystemPrompt`
+- **Added**: Single unified `systemPrompt` option
+
+### Migration Guide
+
+If you're using Happy CLI programmatically or extending it, update your code:
+
+**Before (v0.11.x):**
+```typescript
+{
+  customSystemPrompt: "You are a helpful assistant",
+  appendSystemPrompt: "Additional instructions"
+}
+```
+
+**After (v0.12.0):**
+```typescript
+{
+  systemPrompt: "You are a helpful assistant\n\nAdditional instructions"
+}
+```
+
+**CLI Usage**: No changes required - the CLI interface remains the same.
+
 ## License
 
 MIT

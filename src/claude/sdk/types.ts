@@ -157,8 +157,7 @@ export interface CanCallToolCallback {
 export interface QueryOptions {
     abort?: AbortSignal
     allowedTools?: string[]
-    appendSystemPrompt?: string
-    customSystemPrompt?: string
+    systemPrompt?: string
     cwd?: string
     disallowedTools?: string[]
     executable?: string

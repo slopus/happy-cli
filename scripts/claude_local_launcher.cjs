@@ -95,4 +95,4 @@ global.fetch = function(...args) {
 Object.defineProperty(global.fetch, 'name', { value: 'fetch' });
 Object.defineProperty(global.fetch, 'length', { value: originalFetch.length });
 
-import('@anthropic-ai/claude-code/cli.js')
+import('@anthropic-ai/claude-agent-sdk/cli.js')

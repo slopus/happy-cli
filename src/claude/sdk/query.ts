@@ -258,8 +258,7 @@ export function query(config: {
         prompt,
         options: {
             allowedTools = [],
-            appendSystemPrompt,
-            customSystemPrompt,
+            systemPrompt,
             cwd,
             disallowedTools = [],
             executable = 'node',
@@ -285,8 +284,7 @@ export function query(config: {
     // Build command arguments
     const args = ['--output-format', 'stream-json', '--verbose']
 
-    if (customSystemPrompt) args.push('--system-prompt', customSystemPrompt)
-    if (appendSystemPrompt) args.push('--append-system-prompt', appendSystemPrompt)
+    if (systemPrompt) args.push('--system-prompt', systemPrompt)
     if (maxTurns) args.push('--max-turns', maxTurns.toString())
     if (model) args.push('--model', model)
     if (canCallTool) {

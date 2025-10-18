@@ -153,14 +153,8 @@ export class PermissionHandler {
         // Approval flow
         //
 
-        let toolCallId = this.resolveToolCallId(toolName, input);
-        if (!toolCallId) { // What if we got permission before tool call
-            await delay(1000);
-            toolCallId = this.resolveToolCallId(toolName, input);
-            if (!toolCallId) {
-                throw new Error(`Could not resolve tool call ID for ${toolName}`);
-            }
-        }
+        // Resolve tool call ID with retry logic to handle race conditions
+        const toolCallId = await this.resolveToolCallIdWithRetry(toolName, input, options.signal);
         return this.handlePermissionRequest(toolCallId, toolName, input, options.signal);
     }
 
@@ -257,6 +251,51 @@ export class PermissionHandler {
             // Literal match
             this.allowedBashLiterals.add(command);
         }
+    }
+
+    /**
+     * Resolves tool call ID with retry logic to handle race conditions
+     * where the tool call might not be registered yet when permission is requested
+     */
+    private async resolveToolCallIdWithRetry(
+        name: string,
+        args: any,
+        signal: AbortSignal
+    ): Promise<string> {
+        const maxAttempts = 10;
+        const delays = [50, 100, 200, 400, 500, 500, 500, 1000, 1000, 1000]; // Total: ~4.35 seconds
+
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            // Check if aborted
+            if (signal.aborted) {
+                throw new Error('Permission request aborted while resolving tool call ID');
+            }
+
+            const toolCallId = this.resolveToolCallId(name, args);
+            if (toolCallId) {
+                if (attempt > 0) {
+                    logger.debug(`[PermissionHandler] Resolved tool call ID for ${name} after ${attempt + 1} attempts`);
+                }
+                return toolCallId;
+            }
+
+            // Wait before next attempt
+            if (attempt < maxAttempts - 1) {
+                logger.debug(`[PermissionHandler] Tool call ID not found for ${name}, retrying in ${delays[attempt]}ms (attempt ${attempt + 1}/${maxAttempts})`);
+                await delay(delays[attempt]);
+            }
+        }
+
+        // Failed to resolve after all retries
+        logger.error(`[PermissionHandler] Could not resolve tool call ID for ${name} after ${maxAttempts} attempts`);
+        logger.debug(`[PermissionHandler] Current tool calls:`, this.toolCalls.map(tc => ({
+            id: tc.id,
+            name: tc.name,
+            used: tc.used,
+            inputMatch: deepEqual(tc.input, args)
+        })));
+
+        throw new Error(`Could not resolve tool call ID for ${name} after ${maxAttempts} retry attempts. This may indicate a timing issue with the SDK.`);
     }
 
     /**

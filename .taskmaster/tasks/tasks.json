@@ -1,0 +1,209 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Phase 1: Foundation - Package & Import Updates",
+        "description": "Update package dependencies and fix all import statements to use the new @anthropic-ai/claude-agent-sdk",
+        "details": "Update package.json to replace @anthropic-ai/claude-code with @anthropic-ai/claude-agent-sdk. Update all import statements across the codebase. Files to update: src/utils/MessageQueue.ts, scripts/claude_remote_launcher.cjs, scripts/claude_local_launcher.cjs, src/claude/sdk/*.ts. Use context7 to get up-to-date documentation for @anthropic-ai/claude-agent-sdk.",
+        "testStrategy": "Verify yarn build succeeds with no TypeScript errors",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Update package.json dependencies",
+            "description": "Replace @anthropic-ai/claude-code@2.0.14 with @anthropic-ai/claude-agent-sdk@^0.1.0",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Run yarn install",
+            "description": "Install new SDK package and update yarn.lock",
+            "status": "done"
+          },
+          {
+            "id": 3,
+            "title": "Update src/utils/MessageQueue.ts import",
+            "description": "Change import from @anthropic-ai/claude-code to @anthropic-ai/claude-agent-sdk",
+            "status": "done"
+          },
+          {
+            "id": 4,
+            "title": "Update launcher scripts imports",
+            "description": "Update scripts/claude_remote_launcher.cjs and scripts/claude_local_launcher.cjs to import from new SDK",
+            "status": "done"
+          },
+          {
+            "id": 5,
+            "title": "Verify build succeeds",
+            "description": "Run yarn build and fix any immediate TypeScript compilation errors",
+            "status": "done"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Phase 2: API Migration - System Prompt Unification",
+        "description": "Replace customSystemPrompt and appendSystemPrompt with unified systemPrompt API",
+        "details": "Migrate from dual system prompt options (customSystemPrompt + appendSystemPrompt) to single systemPrompt option. Update interfaces in src/claude/sdk/types.ts, src/claude/loop.ts, src/api/types.ts. Update all call sites in src/claude/claudeRemote.ts, src/claude/runClaude.ts. This is a BREAKING CHANGE. Use context7 to reference Claude Agent SDK API documentation for correct systemPrompt usage.",
+        "testStrategy": "All TypeScript type errors resolved. Update unit tests for new API.",
+        "status": "done",
+        "dependencies": [
+          "1"
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Update QueryOptions interface in src/claude/sdk/types.ts",
+            "description": "Replace customSystemPrompt and appendSystemPrompt with systemPrompt option",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Update EnhancedMode interface in src/claude/loop.ts",
+            "description": "Update mode interface to use new systemPrompt field",
+            "status": "done"
+          },
+          {
+            "id": 3,
+            "title": "Update API types in src/api/types.ts",
+            "description": "Update Zod schemas for API communication to use new systemPrompt field",
+            "status": "done"
+          },
+          {
+            "id": 4,
+            "title": "Update src/claude/sdk/query.ts CLI argument building",
+            "description": "Update lines 261-262, 288-289 to use --system-prompt instead of --custom-system-prompt and --append-system-prompt",
+            "status": "done"
+          },
+          {
+            "id": 5,
+            "title": "Update src/claude/claudeRemote.ts system prompt logic",
+            "description": "Update lines 117-118 to use new systemPrompt API",
+            "status": "done"
+          },
+          {
+            "id": 6,
+            "title": "Update src/claude/runClaude.ts system prompt handling",
+            "description": "Update all system prompt logic (lines 152-154, 194-220, 253-254, etc.) to use new unified API",
+            "status": "done"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Phase 3: Testing & Validation",
+        "description": "Update tests and validate all features work with new SDK",
+        "details": "Update unit tests for new SDK types. Test local mode (interactive PTY sessions). Test remote mode (SDK integration). Test MCP server integration. Test permission handling flow. Test session resumption. Verify all tests pass 100%. Use context7 to reference Claude Agent SDK testing patterns and examples.",
+        "testStrategy": "Run yarn test and verify 100% pass rate. Manual smoke testing of local and remote modes.",
+        "status": "done",
+        "dependencies": [
+          "2"
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Update unit tests for new SDK types",
+            "description": "Update test files to use new systemPrompt API and fix type assertions",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Test local mode (interactive PTY sessions)",
+            "description": "Manually test spawning Claude in local mode, verify QR code display and session works",
+            "status": "done"
+          },
+          {
+            "id": 3,
+            "title": "Test remote mode (SDK integration)",
+            "description": "Test SDK spawning, mobile app connection, and permission handling",
+            "status": "done"
+          },
+          {
+            "id": 4,
+            "title": "Test MCP server integration",
+            "description": "Verify MCP servers still connect and work correctly with new SDK",
+            "status": "done"
+          },
+          {
+            "id": 5,
+            "title": "Run full test suite",
+            "description": "Run yarn test and ensure 100% pass rate, fix any failing tests",
+            "status": "done"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Phase 4: Programmatic API Research",
+        "description": "Research and create POC for programmatic SDK usage instead of CLI spawning",
+        "details": "Create experimental implementation in src/claude/sdk/experimental/programmatic.ts. Test programmatic query() function directly. Compare performance between CLI spawning and programmatic API. Evaluate maintainability and feature parity. Document findings and make recommendation. Use context7 to research Claude Agent SDK programmatic API patterns and best practices.",
+        "testStrategy": "Create POC and comparison document with clear recommendation",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": 5,
+        "title": "Phase 5: Documentation Updates",
+        "description": "Update all documentation for breaking changes and migration guide",
+        "details": "Update README.md with installation instructions and migration notes. Update CLAUDE.md with breaking changes and new API examples. Create CHANGELOG.md entry for v0.12.0. Update JSDoc comments for changed interfaces. Document the migration path from v0.11.x to v0.12.0.",
+        "testStrategy": "Documentation review - ensure all breaking changes are documented with examples",
+        "status": "done",
+        "dependencies": [
+          "3"
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Update README.md",
+            "description": "Add migration section for v0.11.x to v0.12.0, update installation instructions",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Update CLAUDE.md",
+            "description": "Document breaking changes and provide new API examples for system prompts",
+            "status": "done"
+          },
+          {
+            "id": 3,
+            "title": "Create CHANGELOG.md entry",
+            "description": "Write v0.12.0 changelog with breaking changes and migration guide",
+            "status": "done"
+          },
+          {
+            "id": 4,
+            "title": "Update JSDoc comments",
+            "description": "Update code documentation for all changed interfaces and functions",
+            "status": "done"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Phase 6: Release Preparation",
+        "description": "Prepare and execute release strategy for v0.12.0",
+        "details": "Bump version to 0.12.0 in package.json. Create alpha release for internal testing. Create beta release (v0.12.0-beta.1) for community feedback. Address feedback and create RC (v0.12.0-rc.1). Execute production release to npm. Monitor for critical issues.",
+        "testStrategy": "Full integration testing at each release phase. Monitor issue reports after beta release.",
+        "status": "pending",
+        "dependencies": [
+          "5"
+        ],
+        "priority": "medium",
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "created": "2025-10-18T15:26:28.554Z",
+      "description": "Default tasks context",
+      "updated": "2025-10-18T15:46:31.608Z"
+    }
+  }
+}

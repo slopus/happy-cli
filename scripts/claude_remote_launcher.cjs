@@ -10,4 +10,4 @@ global.setTimeout = function(callback, delay, ...args) {
 Object.defineProperty(global.setTimeout, 'name', { value: 'setTimeout' });
 Object.defineProperty(global.setTimeout, 'length', { value: originalSetTimeout.length });
 
-import('@anthropic-ai/claude-code/cli.js')
+import('@anthropic-ai/claude-agent-sdk/cli.js')

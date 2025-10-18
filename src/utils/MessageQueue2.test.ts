@@ -183,8 +183,7 @@ describe('MessageQueue2', () => {
             permissionMode: string;
             model?: string;
             fallbackModel?: string;
-            customSystemPrompt?: string;
-            appendSystemPrompt?: string;
+            systemPrompt?: string;
             allowedTools?: string[];
             disallowedTools?: string[];
         }
@@ -196,8 +195,8 @@ describe('MessageQueue2', () => {
         queue.push('message2', { permissionMode: 'default', model: 'sonnet' }); // Same as message1
         queue.push('message3', { permissionMode: 'default', model: 'haiku' }); // Different model
         queue.push('message4', { permissionMode: 'default', fallbackModel: 'opus' }); // Different fallback model
-        queue.push('message5', { permissionMode: 'default', customSystemPrompt: 'You are a helpful assistant' }); // Different system prompt
-        queue.push('message6', { permissionMode: 'default', appendSystemPrompt: 'Be concise' }); // Different append prompt
+        queue.push('message5', { permissionMode: 'default', systemPrompt: 'You are a helpful assistant' }); // Different system prompt
+        queue.push('message6', { permissionMode: 'default', systemPrompt: 'Be concise' }); // Different system prompt (different value)
         queue.push('message7', { permissionMode: 'default', allowedTools: ['Read', 'Write'] }); // Different allowed tools
         queue.push('message8', { permissionMode: 'default', disallowedTools: ['Bash'] }); // Different disallowed tools
         
@@ -222,18 +221,18 @@ describe('MessageQueue2', () => {
         expect(result3?.mode).toEqual({ permissionMode: 'default', fallbackModel: 'opus' });
         expect(queue.size()).toBe(4); // remaining messages
         
-        // Fourth batch - same permission mode, custom system prompt
+        // Fourth batch - same permission mode, system prompt
         const result4 = await queue.waitForMessagesAndGetAsString();
         expect(result4).not.toBeNull();
         expect(result4?.message).toBe('message5');
-        expect(result4?.mode).toEqual({ permissionMode: 'default', customSystemPrompt: 'You are a helpful assistant' });
+        expect(result4?.mode).toEqual({ permissionMode: 'default', systemPrompt: 'You are a helpful assistant' });
         expect(queue.size()).toBe(3); // remaining messages
-        
-        // Fifth batch - same permission mode, append system prompt
+
+        // Fifth batch - same permission mode, different system prompt
         const result5 = await queue.waitForMessagesAndGetAsString();
         expect(result5).not.toBeNull();
         expect(result5?.message).toBe('message6');
-        expect(result5?.mode).toEqual({ permissionMode: 'default', appendSystemPrompt: 'Be concise' });
+        expect(result5?.mode).toEqual({ permissionMode: 'default', systemPrompt: 'Be concise' });
         expect(queue.size()).toBe(2); // remaining messages
         
         // Sixth batch - same permission mode, allowed tools
@@ -256,7 +255,7 @@ describe('MessageQueue2', () => {
         interface EnhancedMode {
             permissionMode: string;
             model?: string;
-            customSystemPrompt?: string;
+            systemPrompt?: string;
             allowedTools?: string[];
             disallowedTools?: string[];
         }
@@ -266,8 +265,8 @@ describe('MessageQueue2', () => {
         // Push messages with null reset behavior
         queue.push('message1', { permissionMode: 'default', model: 'sonnet' });
         queue.push('message2', { permissionMode: 'default', model: undefined }); // Reset
-        queue.push('message3', { permissionMode: 'default', customSystemPrompt: 'You are helpful' });
-        queue.push('message4', { permissionMode: 'default', customSystemPrompt: undefined }); // Reset
+        queue.push('message3', { permissionMode: 'default', systemPrompt: 'You are helpful' });
+        queue.push('message4', { permissionMode: 'default', systemPrompt: undefined }); // Reset
         queue.push('message5', { permissionMode: 'default', allowedTools: ['Read', 'Write'] });
         queue.push('message6', { permissionMode: 'default', allowedTools: undefined }); // Reset
         queue.push('message7', { permissionMode: 'default', disallowedTools: ['Bash'] });
@@ -285,17 +284,17 @@ describe('MessageQueue2', () => {
         expect(result2?.message).toBe('message2');
         expect(result2?.mode).toEqual({ permissionMode: 'default' }); // No model field
         
-        // Third batch - custom system prompt set
+        // Third batch - system prompt set
         const result3 = await queue.waitForMessagesAndGetAsString();
         expect(result3).not.toBeNull();
         expect(result3?.message).toBe('message3');
-        expect(result3?.mode).toEqual({ permissionMode: 'default', customSystemPrompt: 'You are helpful' });
-        
-        // Fourth batch - custom system prompt reset (undefined)
+        expect(result3?.mode).toEqual({ permissionMode: 'default', systemPrompt: 'You are helpful' });
+
+        // Fourth batch - system prompt reset (undefined)
         const result4 = await queue.waitForMessagesAndGetAsString();
         expect(result4).not.toBeNull();
         expect(result4?.message).toBe('message4');
-        expect(result4?.mode).toEqual({ permissionMode: 'default' }); // No customSystemPrompt field
+        expect(result4?.mode).toEqual({ permissionMode: 'default' }); // No systemPrompt field
         
         // Fifth batch - allowed tools set
         const result5 = await queue.waitForMessagesAndGetAsString();
