@@ -31,6 +31,7 @@ export interface StartOptions {
     claudeEnvVars?: Record<string, string>
     claudeArgs?: string[]
     startedBy?: 'daemon' | 'terminal'
+    name?: string
 }
 
 export async function runClaude(credentials: Credentials, options: StartOptions = {}): Promise<void> {
@@ -75,6 +76,10 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         host: os.hostname(),
         version: packageJson.version,
         os: os.platform(),
+        summary: options.name ? {
+            text: options.name,
+            updatedAt: Date.now()
+        } : undefined,
         machineId: machineId,
         homeDir: os.homedir(),
         happyHomeDir: configuration.happyHomeDir,
