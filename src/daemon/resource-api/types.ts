@@ -39,6 +39,7 @@ export interface CommandMetadata {
 }
 
 export interface ListCommandsRequest {
+  userId: string;            // User identifier for isolation
   filter?: {
     category?: string;       // e.g., "Development", "Quality"
     search?: string;         // Search in command names/descriptions
@@ -73,6 +74,7 @@ export interface SkillMetadata {
 }
 
 export interface ListSkillsRequest {
+  userId: string;            // User identifier for isolation
   filter?: {
     location?: 'user' | 'project' | 'plugin';
     search?: string;
@@ -150,6 +152,7 @@ export interface ListMcpServersResponse {
 // ============================================================================
 
 export interface ExecuteCommandRequest {
+  userId: string;            // User identifier for isolation
   command: string;           // Command name
   args?: string[];           // Command arguments
   flags?: Record<string, any>;
@@ -181,6 +184,7 @@ export interface ExecuteCommandResponse {
 }
 
 export interface InvokeSkillRequest {
+  userId: string;            // User identifier for isolation
   skill: string;             // Skill name
   context?: {
     files?: string[];        // Files to include in context

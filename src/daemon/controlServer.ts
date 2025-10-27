@@ -264,9 +264,10 @@ export function startDaemonControlServer({
     typed.post('/list-commands', {
       schema: {
         body: z.object({
+          userId: z.string(), // REQUIRED: User identifier for isolation
           query: z.string().optional(),
           commandName: z.string().optional()
-        }).optional(),
+        }),
         response: {
           200: z.object({
             commands: z.array(z.object({
@@ -285,23 +286,44 @@ export function startDaemonControlServer({
         }
       }
     }, async (request) => {
-      const body = request.body || {};
-      const { query, commandName } = body;
+      const { userId, query, commandName } = request.body;
 
-      logger.debug(`[CONTROL SERVER] list-commands request: query=${query}, commandName=${commandName}`);
+      logger.debug(`[CONTROL SERVER] list-commands request:`, {
+        userId,
+        query,
+        commandName
+      });
+
+      // Audit log command list request
+      logUserAction({
+        timestamp: Date.now(),
+        userId,
+        action: 'list-commands',
+        resource: commandName || query || 'all',
+        success: true,
+        metadata: { query, commandName }
+      });
 
       let commands;
 
       if (commandName) {
         // Get specific command
         const cmd = getCommand(commandName);
-        commands = cmd ? [cmd] : [];
+        // Validate user access to command
+        if (cmd && !isCommandAllowedForUser(commandName, userId)) {
+          commands = []; // Don't expose inaccessible commands
+        } else {
+          commands = cmd ? [cmd] : [];
+        }
       } else if (query) {
         // Search commands
-        commands = searchCommands(query);
+        const allCommands = searchCommands(query);
+        // Filter to only commands accessible by user
+        commands = allCommands.filter(cmd => isCommandAllowedForUser(cmd.name, userId));
       } else {
-        // Get all commands
-        commands = getAllCommands();
+        // Get all commands accessible by user
+        const allCommands = getAllCommands();
+        commands = allCommands.filter(cmd => isCommandAllowedForUser(cmd.name, userId));
       }
 
       return { commands };
@@ -657,6 +679,9 @@ export function startDaemonControlServer({
     // List all available skills
     typed.post('/skill-list', {
       schema: {
+        body: z.object({
+          userId: z.string() // REQUIRED: User identifier for isolation
+        }),
         response: {
           200: z.object({
             skills: z.array(z.object({
@@ -670,9 +695,24 @@ export function startDaemonControlServer({
           })
         }
       }
-    }, async () => {
-      logger.debug('[CONTROL SERVER] Skill list request');
-      const skills = await listSkills();
+    }, async (request) => {
+      const { userId } = request.body;
+      logger.debug('[CONTROL SERVER] Skill list request', { userId });
+
+      // Audit log skill list request
+      logUserAction({
+        timestamp: Date.now(),
+        userId,
+        action: 'list-skills',
+        resource: 'all',
+        success: true
+      });
+
+      const allSkills = await listSkills();
+
+      // Filter skills accessible by user
+      const skills = allSkills.filter(skill => isSkillAllowedForUser(skill.name, userId));
+
       return { skills };
     });
 
@@ -724,6 +764,7 @@ export function startDaemonControlServer({
     typed.post('/invoke-skill', {
       schema: {
         body: z.object({
+          userId: z.string(), // REQUIRED: User identifier for isolation
           skillName: z.string(),
           context: z.any().optional(),
           parameters: z.any().optional()
@@ -757,18 +798,54 @@ export function startDaemonControlServer({
         }
       }
     }, async (request, reply) => {
-      const { skillName, context, parameters } = request.body;
+      const { userId, skillName, context, parameters } = request.body;
 
       logger.debug(`[CONTROL SERVER] Invoke skill request: ${skillName}`, {
+        userId,
         hasContext: !!context,
         hasParameters: !!parameters
       });
+
+      // Audit log skill invocation attempt
+      logUserAction({
+        timestamp: Date.now(),
+        userId,
+        action: 'invoke-skill',
+        resource: skillName,
+        success: false, // Will update on success
+        metadata: { hasContext: !!context, hasParameters: !!parameters }
+      });
+
+      // Validate user access to skill
+      if (!isSkillAllowedForUser(skillName, userId)) {
+        reply.code(403);
+        logUserAction({
+          timestamp: Date.now(),
+          userId,
+          action: 'invoke-skill',
+          resource: skillName,
+          success: false,
+          error: 'Skill access denied for user'
+        });
+        return {
+          success: false,
+          error: `Skill '${skillName}' access denied for user ${userId}`
+        };
+      }
 
       try {
         // Validate skill structure
         const validation = await validateSkill(skillName);
         if (!validation.valid) {
           reply.code(400);
+          logUserAction({
+            timestamp: Date.now(),
+            userId,
+            action: 'invoke-skill',
+            resource: skillName,
+            success: false,
+            error: validation.error || 'Invalid skill structure'
+          });
           return {
             success: false,
             error: validation.error || 'Invalid skill structure'
@@ -780,6 +857,14 @@ export function startDaemonControlServer({
 
         if (!content) {
           reply.code(404);
+          logUserAction({
+            timestamp: Date.now(),
+            userId,
+            action: 'invoke-skill',
+            resource: skillName,
+            success: false,
+            error: 'Skill not found'
+          });
           return {
             success: false,
             error: `Skill '${skillName}' not found or could not be read`
@@ -787,8 +872,18 @@ export function startDaemonControlServer({
         }
 
         logger.debug(`[CONTROL SERVER] Skill '${skillName}' invoked successfully`, {
+          userId,
           hasSkillMd: !!content.skillMd,
           templateCount: Object.keys(content.templates).length
+        });
+
+        // Log successful invocation
+        logUserAction({
+          timestamp: Date.now(),
+          userId,
+          action: 'invoke-skill',
+          resource: skillName,
+          success: true
         });
 
         return {
@@ -800,6 +895,14 @@ export function startDaemonControlServer({
       } catch (error) {
         logger.debug(`[CONTROL SERVER] Failed to invoke skill '${skillName}':`, error);
         reply.code(500);
+        logUserAction({
+          timestamp: Date.now(),
+          userId,
+          action: 'invoke-skill',
+          resource: skillName,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error'
