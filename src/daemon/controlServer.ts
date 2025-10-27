@@ -304,7 +304,7 @@ export function startDaemonControlServer({
         metadata: { query, commandName }
       });
 
-      let commands;
+      let commands: any[];
 
       if (commandName) {
         // Get specific command
@@ -562,7 +562,7 @@ export function startDaemonControlServer({
       const userValidation = validateCommandForUser(command, args, cwd, userId);
       if (!userValidation.valid) {
         logger.debug(`[CONTROL SERVER] User path validation failed: ${userValidation.error}`);
-        reply.code(403);
+        reply.code(400);
         logUserAction({
           timestamp: Date.now(),
           userId,
@@ -818,7 +818,7 @@ export function startDaemonControlServer({
 
       // Validate user access to skill
       if (!isSkillAllowedForUser(skillName, userId)) {
-        reply.code(403);
+        reply.code(400);
         logUserAction({
           timestamp: Date.now(),
           userId,
