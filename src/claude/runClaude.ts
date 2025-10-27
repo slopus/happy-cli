@@ -369,7 +369,8 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         },
         session,
         claudeEnvVars: options.claudeEnvVars,
-        claudeArgs: options.claudeArgs
+        claudeArgs: options.claudeArgs,
+        commandType: 'happy'  // Identify this as a happy command session
     });
 
     // Send session death message

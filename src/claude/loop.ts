@@ -32,6 +32,7 @@ interface LoopOptions {
     messageQueue: MessageQueue2<EnhancedMode>
     allowedTools?: string[]
     onSessionReady?: (session: Session) => void
+    commandType?: 'claude' | 'happy'
 }
 
 export async function loop(opts: LoopOptions) {
@@ -49,7 +50,8 @@ export async function loop(opts: LoopOptions) {
         logPath: logPath,
         messageQueue: opts.messageQueue,
         allowedTools: opts.allowedTools,
-        onModeChange: opts.onModeChange
+        onModeChange: opts.onModeChange,
+        commandType: opts.commandType
     });
 
     // Notify that session is ready

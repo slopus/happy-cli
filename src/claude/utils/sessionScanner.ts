@@ -6,14 +6,47 @@ import { logger } from "@/ui/logger";
 import { startFileWatcher } from "@/modules/watcher/startFileWatcher";
 import { getProjectPath } from "./path";
 
-export async function createSessionScanner(opts: {
-    sessionId: string | null,
-    workingDirectory: string
-    onMessage: (message: RawJSONLines) => void
-}) {
+/**
+ * Metadata about a detected session
+ */
+export interface SessionMetadata {
+    sessionId: string;
+    commandType: 'claude' | 'happy';
+    startMethod: 'direct' | 'daemon' | 'resume';
+    detectedAt: number;
+    firstMessageAt?: number;
+}
+
+export interface SessionScannerOptions {
+    sessionId: string | null;
+    workingDirectory: string;
+    onMessage: (message: RawJSONLines) => void;
+    /**
+     * Command type that started this session
+     * Used for session detection logic and metadata tracking
+     * @default 'claude'
+     */
+    commandType?: 'claude' | 'happy';
+    /**
+     * Method used to start the session
+     * @default 'direct'
+     */
+    startMethod?: 'direct' | 'daemon' | 'resume';
+}
+
+export async function createSessionScanner(opts: SessionScannerOptions) {
 
     // Resolve project directory
     const projectDir = getProjectPath(opts.workingDirectory);
+
+    // Default command type to 'claude' for backward compatibility
+    const commandType = opts.commandType || 'claude';
+    const startMethod = opts.startMethod || 'direct';
+
+    logger.debug(`[SESSION_SCANNER] Initializing scanner for command: ${commandType}, startMethod: ${startMethod}`);
+
+    // Session metadata tracking
+    const sessionMetadata = new Map<string, SessionMetadata>();
 
     // Finished, pending finishing and current session
     let finishedSessions = new Set<string>();
@@ -51,6 +84,14 @@ export async function createSessionScanner(opts: {
                     continue;
                 }
                 processedMessageKeys.add(key);
+
+                // Track first message timestamp
+                const metadata = sessionMetadata.get(session);
+                if (metadata && !metadata.firstMessageAt) {
+                    metadata.firstMessageAt = Date.now();
+                    logger.debug(`[SESSION_SCANNER] First message detected for session ${session}`);
+                }
+
                 opts.onMessage(file);
             }
         }
@@ -102,9 +143,32 @@ export async function createSessionScanner(opts: {
             if (currentSessionId) {
                 pendingSessions.add(currentSessionId);
             }
-            logger.debug(`[SESSION_SCANNER] New session: ${sessionId}`)
+
+            // Capture session metadata
+            sessionMetadata.set(sessionId, {
+                sessionId,
+                commandType,
+                startMethod,
+                detectedAt: Date.now()
+            });
+
+            logger.debug(`[SESSION_SCANNER] New session: ${sessionId} (command: ${commandType}, method: ${startMethod})`);
             currentSessionId = sessionId;
             sync.invalidate();
+        },
+
+        /**
+         * Get metadata for a session
+         */
+        getSessionMetadata: (sessionId: string): SessionMetadata | undefined => {
+            return sessionMetadata.get(sessionId);
+        },
+
+        /**
+         * Get all tracked sessions with their metadata
+         */
+        getAllSessions: (): SessionMetadata[] => {
+            return Array.from(sessionMetadata.values());
         },
     }
 }

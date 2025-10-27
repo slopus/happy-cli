@@ -14,6 +14,7 @@ export class Session {
     readonly mcpServers: Record<string, any>;
     readonly allowedTools?: string[];
     readonly _onModeChange: (mode: 'local' | 'remote') => void;
+    readonly commandType: 'claude' | 'happy';  // Track which command started this session
 
     sessionId: string | null;
     mode: 'local' | 'remote' = 'local';
@@ -31,6 +32,7 @@ export class Session {
         messageQueue: MessageQueue2<EnhancedMode>,
         onModeChange: (mode: 'local' | 'remote') => void,
         allowedTools?: string[],
+        commandType?: 'claude' | 'happy',
     }) {
         this.path = opts.path;
         this.api = opts.api;
@@ -43,6 +45,7 @@ export class Session {
         this.mcpServers = opts.mcpServers;
         this.allowedTools = opts.allowedTools;
         this._onModeChange = opts.onModeChange;
+        this.commandType = opts.commandType || 'claude'; // Default to 'claude' for backward compatibility
 
         // Start keep alive
         this.client.keepAlive(this.thinking, this.mode);

@@ -6,11 +6,13 @@ import { createSessionScanner } from "./utils/sessionScanner";
 
 export async function claudeLocalLauncher(session: Session): Promise<'switch' | 'exit'> {
 
-    // Create scanner
+    // Create scanner with command type from session
     const scanner = await createSessionScanner({
         sessionId: session.sessionId,
         workingDirectory: session.path,
-        onMessage: (message) => { 
+        commandType: session.commandType,
+        startMethod: session.sessionId ? 'resume' : 'direct',
+        onMessage: (message) => {
             // Block SDK summary messages - we generate our own
             if (message.type !== 'summary') {
                 session.client.sendClaudeSessionMessage(message)
