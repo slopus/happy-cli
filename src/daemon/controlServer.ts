@@ -14,8 +14,15 @@ import { listSkills, readSkillContent, validateSkill, getSkillMetadata } from '@
 import { listConfiguredMCPServers } from '@/claude/utils/mcpServerDiscovery';
 import { spawn } from 'child_process';
 import { getAllCommands, getCommand, searchCommands } from './commandRegistry';
+import {
+  validateCommandForUser,
+  isSkillAllowedForUser,
+  isCommandAllowedForUser,
+  logUserAction
+} from './resource-api/userIsolation';
 
-// Command whitelist for security - only safe, read-only commands allowed
+// Command whitelist for security - ONLY safe, read-only commands allowed
+// Removed: node, npm, yarn, git (can execute arbitrary code or modify repository)
 const ALLOWED_COMMANDS = new Set([
   'ls',
   'pwd',
@@ -23,40 +30,92 @@ const ALLOWED_COMMANDS = new Set([
   'date',
   'whoami',
   'hostname',
-  'uname',
-  'node',
-  'npm',
-  'yarn',
-  'git'
+  'uname'
 ]);
 
 // Rate limiting: track command executions per minute
 const commandExecutionTracker = new Map<string, number[]>();
 const MAX_COMMANDS_PER_MINUTE = 30;
 
+// Concurrent execution limiting: track active executions per user
+// Maps userId to set of active execution IDs
+const activeExecutions = new Map<string, Set<string>>();
+const MAX_CONCURRENT_EXECUTIONS = 5;
+
 /**
- * Check if command execution is allowed based on rate limiting
+ * Check if command execution is allowed based on per-user rate limiting
+ *
+ * @param userId - User identifier for per-user rate limiting
+ * @returns true if within rate limit, false if exceeded
  */
-function checkRateLimit(identifier: string = 'global'): boolean {
+function checkRateLimit(userId: string): boolean {
   const now = Date.now();
   const oneMinuteAgo = now - 60000;
 
-  // Get or create execution history for this identifier
-  let executions = commandExecutionTracker.get(identifier) || [];
+  // Use userId as the rate limit key for per-user isolation
+  const rateLimitKey = `user:${userId}`;
+
+  // Get or create execution history for this user
+  let executions = commandExecutionTracker.get(rateLimitKey) || [];
 
   // Remove executions older than 1 minute
   executions = executions.filter(timestamp => timestamp > oneMinuteAgo);
 
   // Check if limit exceeded
   if (executions.length >= MAX_COMMANDS_PER_MINUTE) {
+    logger.debug(`[USER ISOLATION] Rate limit exceeded for user ${userId}: ${executions.length} commands in last minute`);
     return false;
   }
 
   // Add current execution
   executions.push(now);
-  commandExecutionTracker.set(identifier, executions);
+  commandExecutionTracker.set(rateLimitKey, executions);
 
   return true;
+}
+
+/**
+ * Check if concurrent execution limit is reached for a user
+ */
+function checkConcurrentLimit(userId: string = 'global'): boolean {
+  const userExecutions = activeExecutions.get(userId);
+
+  if (!userExecutions) {
+    return true; // No active executions, allowed
+  }
+
+  return userExecutions.size < MAX_CONCURRENT_EXECUTIONS;
+}
+
+/**
+ * Register a new execution and get its ID
+ */
+function registerExecution(userId: string = 'global'): string {
+  const executionId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+  let userExecutions = activeExecutions.get(userId);
+  if (!userExecutions) {
+    userExecutions = new Set();
+    activeExecutions.set(userId, userExecutions);
+  }
+
+  userExecutions.add(executionId);
+  return executionId;
+}
+
+/**
+ * Unregister an execution when complete
+ */
+function unregisterExecution(userId: string, executionId: string): void {
+  const userExecutions = activeExecutions.get(userId);
+  if (userExecutions) {
+    userExecutions.delete(executionId);
+
+    // Clean up empty sets
+    if (userExecutions.size === 0) {
+      activeExecutions.delete(userId);
+    }
+  }
 }
 
 /**
@@ -425,6 +484,7 @@ export function startDaemonControlServer({
     typed.post('/execute-command', {
       schema: {
         body: z.object({
+          userId: z.string(), // REQUIRED: User identifier for isolation
           command: z.string(),
           args: z.array(z.string()).optional().default([]),
           cwd: z.string().optional(),
@@ -457,22 +517,69 @@ export function startDaemonControlServer({
         }
       }
     }, async (request, reply) => {
-      const { command, args = [], cwd, timeoutMs = 60000 } = request.body;
+      const { userId, command, args = [], cwd, timeoutMs = 60000 } = request.body;
 
       // Audit log all command execution attempts
+      logUserAction({
+        timestamp: Date.now(),
+        userId,
+        action: 'execute-command',
+        resource: command,
+        success: false, // Will update on success
+        metadata: { args, cwd, timeoutMs }
+      });
+
       logger.debug(`[CONTROL SERVER] Execute command request: ${command} ${args.join(' ')}`, {
+        userId,
         cwd,
         timeoutMs,
         timestamp: new Date().toISOString()
       });
 
-      // Check rate limit
-      if (!checkRateLimit()) {
-        logger.debug(`[CONTROL SERVER] Rate limit exceeded for command execution`);
+      // Validate user access to paths
+      const userValidation = validateCommandForUser(command, args, cwd, userId);
+      if (!userValidation.valid) {
+        logger.debug(`[CONTROL SERVER] User path validation failed: ${userValidation.error}`);
+        reply.code(403);
+        logUserAction({
+          timestamp: Date.now(),
+          userId,
+          action: 'execute-command',
+          resource: command,
+          success: false,
+          error: userValidation.error
+        });
+        return {
+          success: false,
+          error: userValidation.error || 'Path access denied for user'
+        };
+      }
+
+      // Check rate limit (per-user)
+      if (!checkRateLimit(userId)) {
+        logger.debug(`[CONTROL SERVER] Rate limit exceeded for user ${userId}`);
         reply.code(429);
+        logUserAction({
+          timestamp: Date.now(),
+          userId,
+          action: 'execute-command',
+          resource: command,
+          success: false,
+          error: 'Rate limit exceeded'
+        });
         return {
           success: false,
           error: `Rate limit exceeded. Maximum ${MAX_COMMANDS_PER_MINUTE} commands per minute allowed.`
+        };
+      }
+
+      // Check concurrent execution limit
+      if (!checkConcurrentLimit(userId)) {
+        logger.debug(`[CONTROL SERVER] Concurrent execution limit reached for user: ${userId}`);
+        reply.code(429);
+        return {
+          success: false,
+          error: `Concurrent execution limit reached. Maximum ${MAX_CONCURRENT_EXECUTIONS} concurrent executions allowed.`
         };
       }
 
@@ -487,18 +594,35 @@ export function startDaemonControlServer({
         };
       }
 
+      // Register execution and get ID for tracking
+      const executionId = registerExecution(userId);
+
       // Execute command
       try {
         const result = await executeCommand(command, args, cwd, timeoutMs);
 
         // Audit log execution result
         logger.debug(`[CONTROL SERVER] Command executed:`, {
+          userId,
           command,
           args,
           exitCode: result.exitCode,
           timedOut: result.timedOut,
           stdoutLength: result.stdout.length,
           stderrLength: result.stderr.length
+        });
+
+        // Log successful execution
+        logUserAction({
+          timestamp: Date.now(),
+          userId,
+          action: 'execute-command',
+          resource: command,
+          success: true,
+          metadata: {
+            exitCode: result.exitCode,
+            timedOut: result.timedOut
+          }
         });
 
         return {
@@ -512,10 +636,21 @@ export function startDaemonControlServer({
       } catch (error) {
         logger.debug(`[CONTROL SERVER] Command execution error:`, error);
         reply.code(500);
+        logUserAction({
+          timestamp: Date.now(),
+          userId,
+          action: 'execute-command',
+          resource: command,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
         return {
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error during command execution'
         };
+      } finally {
+        // Always unregister execution when complete
+        unregisterExecution(userId, executionId);
       }
     });
 

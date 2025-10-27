@@ -36,11 +36,17 @@ Response: {
 }
 ```
 
-#### 2. Security Measures
+#### 2. Security Measures (HARDENED)
 
-**Command Whitelist** (NO arbitrary command execution):
-- `ls`, `pwd`, `echo`, `date`, `whoami`, `hostname`, `uname`
-- `node`, `npm`, `yarn`, `git`
+**Command Whitelist** (ONLY safe, read-only commands):
+- ✅ `ls`, `pwd`, `echo`, `date`, `whoami`, `hostname`, `uname`
+- ❌ **REMOVED**: `node`, `npm`, `yarn`, `git` (can execute arbitrary code)
+
+**Concurrent Execution Limits**:
+- Maximum 5 concurrent executions per user
+- Tracked with execution ID registration/unregistration
+- Returns HTTP 429 on limit exceeded
+- Prevents resource exhaustion attacks
 
 **Shell Injection Prevention**:
 - `shell: false` in spawn (never use shell mode)
@@ -171,13 +177,31 @@ curl -X POST http://127.0.0.1:<port>/execute-command \
 # Expected: Success with timedOut: true, exitCode: null
 ```
 
-**Test 5: Command Whitelist Validation**
+**Test 5: Command Whitelist Validation (Blocked Commands)**
 ```bash
+# Test 5a: Dangerous command (rm)
 curl -X POST http://127.0.0.1:<port>/execute-command \
   -H "Content-Type: application/json" \
   -d '{"command":"rm","args":["-rf","/"]}'
-
 # Expected: HTTP 400 with "Command 'rm' not allowed" error
+
+# Test 5b: Removed command (node)
+curl -X POST http://127.0.0.1:<port>/execute-command \
+  -H "Content-Type: application/json" \
+  -d '{"command":"node","args":["--version"]}'
+# Expected: HTTP 400 with "Command 'node' not allowed" error
+
+# Test 5c: Removed command (npm)
+curl -X POST http://127.0.0.1:<port>/execute-command \
+  -H "Content-Type: application/json" \
+  -d '{"command":"npm","args":["list"]}'
+# Expected: HTTP 400 with "Command 'npm' not allowed" error
+
+# Test 5d: Removed command (git)
+curl -X POST http://127.0.0.1:<port>/execute-command \
+  -H "Content-Type: application/json" \
+  -d '{"command":"git","args":["status"]}'
+# Expected: HTTP 400 with "Command 'git' not allowed" error
 ```
 
 **Test 6: Shell Injection Prevention**
@@ -199,6 +223,19 @@ for i in {1..31}; do
 done
 
 # Expected: First 30 succeed, 31st returns HTTP 429
+```
+
+**Test 8: Concurrent Execution Limits (NEW)**
+```bash
+# Start 6 long-running commands in parallel
+for i in {1..6}; do
+  curl -X POST http://127.0.0.1:<port>/execute-command \
+    -H "Content-Type: application/json" \
+    -d '{"command":"sleep","args":["30"],"timeoutMs":35000}' &
+done
+
+# Expected: First 5 start successfully, 6th returns HTTP 429
+# Expected error: "Concurrent execution limit reached. Maximum 5 concurrent executions allowed."
 ```
 
 #### Integration Testing
@@ -223,11 +260,11 @@ From Mobile App:
 - ✅ Process bombing (rate limiting)
 
 **Allowed Operations** (Safe by Design):
-- Read-only information gathering (ls, pwd, date)
-- System identification (whoami, hostname, uname)
-- Package manager queries (npm, yarn)
-- Version control queries (git status, git branch)
-- Environment information (node --version)
+- ✅ Read-only information gathering (ls, pwd, date)
+- ✅ System identification (whoami, hostname, uname)
+- ❌ Package manager queries (REMOVED: npm, yarn - security risk)
+- ❌ Version control queries (REMOVED: git - can modify repository)
+- ❌ Environment information (REMOVED: node - can execute code)
 
 #### Recommended Monitoring
 
@@ -315,21 +352,26 @@ Execution Error Response (500):
 }
 ```
 
-### Allowed Commands
+### Allowed Commands (HARDENED)
 
-| Command | Purpose | Example Usage |
-|---------|---------|---------------|
-| `ls` | List directory contents | `ls -la /tmp` |
-| `pwd` | Print working directory | `pwd` |
-| `echo` | Display text | `echo "Hello"` |
-| `date` | Show current date/time | `date` |
-| `whoami` | Show current user | `whoami` |
-| `hostname` | Show machine hostname | `hostname` |
-| `uname` | Show system information | `uname -a` |
-| `node` | Node.js operations | `node --version` |
-| `npm` | NPM package manager | `npm list` |
-| `yarn` | Yarn package manager | `yarn --version` |
-| `git` | Git operations | `git status` |
+| Command | Purpose | Example Usage | Security Level |
+|---------|---------|---------------|----------------|
+| `ls` | List directory contents | `ls -la /tmp` | ✅ Safe |
+| `pwd` | Print working directory | `pwd` | ✅ Safe |
+| `echo` | Display text | `echo "Hello"` | ✅ Safe |
+| `date` | Show current date/time | `date` | ✅ Safe |
+| `whoami` | Show current user | `whoami` | ✅ Safe |
+| `hostname` | Show machine hostname | `hostname` | ✅ Safe |
+| `uname` | Show system information | `uname -a` | ✅ Safe |
+
+### Removed Commands (Security Hardening)
+
+| Command | Removed Reason | Risk Level |
+|---------|---------------|------------|
+| `node` | Can execute arbitrary JavaScript code | 🚨 CRITICAL |
+| `npm` | Can execute install scripts, arbitrary code | 🚨 CRITICAL |
+| `yarn` | Can execute install scripts, arbitrary code | 🚨 CRITICAL |
+| `git` | Can modify repository, execute hooks | ⚠️ HIGH |
 
 ### Security Constraints
 
@@ -338,6 +380,7 @@ Execution Error Response (500):
 - Directory traversal: `../`
 
 **Resource Limits**:
+- Maximum 5 concurrent executions per user (NEW)
 - Maximum 30 commands per minute
 - Maximum 5-minute timeout per command
 - Maximum 1MB output per stream
