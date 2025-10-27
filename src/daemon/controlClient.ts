@@ -40,7 +40,7 @@ async function daemonPost(path: string, body?: any): Promise<{ error?: string } 
       // Mostly increased for stress test
       signal: AbortSignal.timeout(timeout)
     });
-    
+
     if (!response.ok) {
       const errorMessage = `Request failed: ${path}, HTTP ${response.status}`;
       logger.debug(`[CONTROL CLIENT] ${errorMessage}`);
@@ -48,7 +48,7 @@ async function daemonPost(path: string, body?: any): Promise<{ error?: string } 
         error: errorMessage
       };
     }
-    
+
     return await response.json();
   } catch (error) {
     const errorMessage = `Request failed: ${path}, ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -89,29 +89,62 @@ export async function stopDaemonHttp(): Promise<void> {
 }
 
 /**
+ * Execute a command via the daemon control server
+ * @param command - The command to execute (e.g., 'ls', 'pwd')
+ * @param args - Optional array of command arguments
+ * @param options - Optional execution options
+ * @returns Result object with stdout, stderr, exitCode, and execution metadata
+ */
+export async function executeCommand(
+  command: string,
+  args: string[] = [],
+  options?: {
+    cwd?: string;
+    timeoutMs?: number;
+  }
+): Promise<{
+  success: boolean;
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number | null;
+  signal?: string | null;
+  timedOut?: boolean;
+  error?: string;
+}> {
+  const result = await daemonPost('/execute-command', {
+    command,
+    args,
+    cwd: options?.cwd,
+    timeoutMs: options?.timeoutMs || 60000
+  });
+
+  return result;
+}
+
+/**
  * The version check is still quite naive.
  * For instance we are not handling the case where we upgraded happy,
  * the daemon is still running, and it recieves a new message to spawn a new session.
  * This is a tough case - we need to somehow figure out to restart ourselves,
  * yet still handle the original request.
- * 
+ *
  * Options:
  * 1. Periodically check during the health checks whether our version is the same as CLIs version. If not - restart.
  * 2. Wait for a command from the machine session, or any other signal to
  * check for version & restart.
  *   a. Handle the request first
  *   b. Let the request fail, restart and rely on the client retrying the request
- * 
+ *
  * I like option 1 a little better.
- * Maybe we can ... wait for it ... have another daemon to make sure 
+ * Maybe we can ... wait for it ... have another daemon to make sure
  * our daemon is always alive and running the latest version.
- * 
+ *
  * That seems like an overkill and yet another process to manage - lets not do this :D
- * 
+ *
  * TODO: This function should return a state object with
  * clear state - if it is running / or errored out or something else.
  * Not just a boolean.
- * 
+ *
  * We can destructure the response on the caller for richer output.
  * For instance when running `happy daemon status` we can show more information.
  */
@@ -136,7 +169,7 @@ export async function checkIfDaemonRunningAndCleanupStaleState(): Promise<boolea
  * Check if the running daemon version matches the current CLI version.
  * This should work from both the daemon itself & a new CLI process.
  * Works via the daemon.state.json file.
- * 
+ *
  * @returns true if versions match, false if versions differ or no daemon running
  */
 export async function isDaemonRunningCurrentlyInstalledHappyVersion(): Promise<boolean> {
@@ -152,20 +185,20 @@ export async function isDaemonRunningCurrentlyInstalledHappyVersion(): Promise<b
     logger.debug('[DAEMON CONTROL] No daemon state found, returning false');
     return false;
   }
-  
+
   try {
     // Read package.json on demand from disk - so we are guaranteed to get the latest version
     const packageJsonPath = join(projectPath(), 'package.json');
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
     const currentCliVersion = packageJson.version;
-    
+
     logger.debug(`[DAEMON CONTROL] Current CLI version: ${currentCliVersion}, Daemon started with version: ${state.startedWithCliVersion}`);
     return currentCliVersion === state.startedWithCliVersion;
-    
+
     // PREVIOUS IMPLEMENTATION - Keeping this commented in case we need it
-    // Kirill does not understand how the upgrade of npm packages happen and whether 
+    // Kirill does not understand how the upgrade of npm packages happen and whether
     // we will get a new path or not when happy-coder is upgraded globally.
-    // If reading package.json doesn't work correctly after npm upgrades, 
+    // If reading package.json doesn't work correctly after npm upgrades,
     // we can revert to spawning a process (but should add timeout and cleanup!)
     /*
     const { spawnHappyCLI } = await import('@/utils/spawnHappyCLI');

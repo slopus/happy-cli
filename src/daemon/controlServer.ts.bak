@@ -13,7 +13,6 @@ import { SpawnSessionOptions, SpawnSessionResult } from '@/modules/common/regist
 import { listSkills, readSkillContent, validateSkill, getSkillMetadata } from '@/utils/skillManager';
 import { listConfiguredMCPServers } from '@/claude/utils/mcpServerDiscovery';
 import { spawn } from 'child_process';
-import { getAllCommands, getCommand, searchCommands } from './commandRegistry';
 
 // Command whitelist for security - only safe, read-only commands allowed
 const ALLOWED_COMMANDS = new Set([
