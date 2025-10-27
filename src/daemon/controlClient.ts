@@ -74,6 +74,11 @@ export async function listDaemonSessions(): Promise<any[]> {
   return result.children || [];
 }
 
+export async function listMCPServers(): Promise<any[]> {
+  const result = await daemonPost('/list-mcp-servers');
+  return result.servers || [];
+}
+
 export async function stopDaemonSession(sessionId: string): Promise<boolean> {
   const result = await daemonPost('/stop-session', { sessionId });
   return result.success || false;

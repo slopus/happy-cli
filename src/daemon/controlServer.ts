@@ -201,6 +201,53 @@ export function startDaemonControlServer({
     const typed = app.withTypeProvider<ZodTypeProvider>();
 
     // Session reports itself after creation
+    // List available commands
+    typed.post('/list-commands', {
+      schema: {
+        body: z.object({
+          query: z.string().optional(),
+          commandName: z.string().optional()
+        }).optional(),
+        response: {
+          200: z.object({
+            commands: z.array(z.object({
+              name: z.string(),
+              description: z.string(),
+              usage: z.string(),
+              examples: z.array(z.string()).optional(),
+              subcommands: z.array(z.object({
+                name: z.string(),
+                description: z.string(),
+                usage: z.string(),
+                examples: z.array(z.string()).optional()
+              })).optional()
+            }))
+          })
+        }
+      }
+    }, async (request) => {
+      const body = request.body || {};
+      const { query, commandName } = body;
+
+      logger.debug(`[CONTROL SERVER] list-commands request: query=${query}, commandName=${commandName}`);
+
+      let commands;
+
+      if (commandName) {
+        // Get specific command
+        const cmd = getCommand(commandName);
+        commands = cmd ? [cmd] : [];
+      } else if (query) {
+        // Search commands
+        commands = searchCommands(query);
+      } else {
+        // Get all commands
+        commands = getAllCommands();
+      }
+
+      return { commands };
+    });
+
     typed.post('/session-started', {
       schema: {
         body: z.object({
