@@ -4,6 +4,7 @@ import { promisify } from 'util';
 import { readFile, writeFile, readdir, stat } from 'fs/promises';
 import { createHash } from 'crypto';
 import { join } from 'path';
+import { homedir } from 'os';
 import { run as runRipgrep } from '@/modules/ripgrep/index';
 import { run as runDifftastic } from '@/modules/difftastic/index';
 import { RpcHandlerManager } from '../../api/rpc/RpcHandlerManager';
@@ -109,6 +110,22 @@ interface DifftasticResponse {
     error?: string;
 }
 
+interface ListSkillsRequest {
+    // No parameters needed
+}
+
+interface SkillMetadata {
+    name: string;
+    description: string;
+    license?: string;
+}
+
+interface ListSkillsResponse {
+    success: boolean;
+    skills?: SkillMetadata[];
+    error?: string;
+}
+
 /*
  * Spawn Session Options and Result
  * This rpc type is used by the daemon, all other RPCs here are for sessions
@@ -127,6 +144,34 @@ export type SpawnSessionResult =
     | { type: 'success'; sessionId: string }
     | { type: 'requestToApproveDirectoryCreation'; directory: string }
     | { type: 'error'; errorMessage: string };
+
+/**
+ * Parse YAML frontmatter from SKILL.md file
+ */
+function parseFrontmatter(content: string): Record<string, string> {
+    const lines = content.split('\n');
+    const frontmatter: Record<string, string> = {};
+
+    if (lines[0] !== '---') {
+        return frontmatter;
+    }
+
+    let i = 1;
+    while (i < lines.length && lines[i] !== '---') {
+        const line = lines[i].trim();
+        if (line) {
+            const colonIndex = line.indexOf(':');
+            if (colonIndex > 0) {
+                const key = line.substring(0, colonIndex).trim();
+                const value = line.substring(colonIndex + 1).trim();
+                frontmatter[key] = value;
+            }
+        }
+        i++;
+    }
+
+    return frontmatter;
+}
 
 /**
  * Register all RPC handlers with the session
@@ -429,6 +474,70 @@ export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager) {
                 success: false,
                 error: error instanceof Error ? error.message : 'Failed to run difftastic'
             };
+        }
+    });
+
+    // List skills handler - enumerate installed Claude Skills
+    rpcHandlerManager.registerHandler<ListSkillsRequest, ListSkillsResponse>('list-skills', async () => {
+        logger.debug('List skills request');
+
+        try {
+            const skillsDir = join(homedir(), '.claude', 'skills');
+
+            // Check if skills directory exists
+            try {
+                await stat(skillsDir);
+            } catch (error) {
+                const nodeError = error as NodeJS.ErrnoException;
+                if (nodeError.code === 'ENOENT') {
+                    // Directory doesn't exist - return empty list
+                    return { success: true, skills: [] };
+                }
+                throw error;
+            }
+
+            // Read all entries in skills directory
+            const entries = await readdir(skillsDir, { withFileTypes: true });
+            const skills: SkillMetadata[] = [];
+
+            // Process each directory/symlink
+            for (const entry of entries) {
+                // Skip files, only process directories and symlinks
+                if (!entry.isDirectory() && !entry.isSymbolicLink()) {
+                    continue;
+                }
+
+                const skillPath = join(skillsDir, entry.name);
+                const skillMdPath = join(skillPath, 'SKILL.md');
+
+                try {
+                    // Try to read SKILL.md file
+                    const content = await readFile(skillMdPath, 'utf-8');
+                    const frontmatter = parseFrontmatter(content);
+
+                    // Extract metadata from frontmatter
+                    const name = frontmatter.name || entry.name;
+                    const description = frontmatter.description || '';
+                    const license = frontmatter.license;
+
+                    skills.push({
+                        name,
+                        description,
+                        ...(license && { license })
+                    });
+                } catch (error) {
+                    // Skill doesn't have valid SKILL.md - log and skip
+                    logger.debug(`Skipping invalid skill ${entry.name}:`, error instanceof Error ? error.message : String(error));
+                }
+            }
+
+            // Sort skills by name
+            skills.sort((a, b) => a.name.localeCompare(b.name));
+
+            return { success: true, skills };
+        } catch (error) {
+            logger.debug('Failed to list skills:', error);
+            return { success: false, error: error instanceof Error ? error.message : 'Failed to list skills' };
         }
     });
 }
