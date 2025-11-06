@@ -538,8 +538,8 @@ export async function runCodex(opts: {
     const bridgeCommand = join(projectPath(), 'bin', 'happy-mcp.mjs');
     const mcpServers = {
         happy: {
-            command: bridgeCommand,
-            args: ['--url', happyServer.url]
+            command: process.execPath,
+            args: [bridgeCommand, '--url', happyServer.url]
         }
     } as const;
     let first = true;
