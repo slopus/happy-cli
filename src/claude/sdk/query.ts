@@ -262,8 +262,6 @@ export function query(config: {
             customSystemPrompt,
             cwd,
             disallowedTools = [],
-            executable = 'node',
-            executableArgs = [],
             maxTurns,
             mcpServers,
             pathToClaudeCodeExecutable = getDefaultClaudeCodePath(),
@@ -325,9 +323,10 @@ export function query(config: {
     }
 
     // Spawn Claude Code process
-    logDebug(`Spawning Claude Code process: ${executable} ${[...executableArgs, pathToClaudeCodeExecutable, ...args].join(' ')}`)
+    // Note: pathToClaudeCodeExecutable is now the claude binary, not a Node.js script
+    logDebug(`Spawning Claude Code process: ${pathToClaudeCodeExecutable} ${args.join(' ')}`)
 
-    const child = spawn(executable, [...executableArgs, pathToClaudeCodeExecutable, ...args], {
+    const child = spawn(pathToClaudeCodeExecutable, args, {
         cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
         signal: config.options?.abort,

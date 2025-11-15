@@ -95,4 +95,35 @@ global.fetch = function(...args) {
 Object.defineProperty(global.fetch, 'name', { value: 'fetch' });
 Object.defineProperty(global.fetch, 'length', { value: originalFetch.length });
 
-import('@anthropic-ai/claude-code/cli.js')
+// Get the claude binary path from environment variable (passed by claudeLocal.ts)
+const claudeCliPath = process.env.CLAUDE_CLI_PATH || 'claude';
+
+// Since we're now using the Homebrew-installed binary, we need to spawn it directly
+// rather than importing it as a module. This script will be invoked by Node.js
+// and should exec the claude binary.
+const { spawn } = require('child_process');
+
+// Pass through all arguments and stdio
+const args = process.argv.slice(2);
+const child = spawn(claudeCliPath, args, {
+    stdio: ['inherit', 'inherit', 'inherit', 3], // Preserve fd 3 for our custom messages
+    env: process.env
+});
+
+// Forward our intercepted messages through fd 3
+// We can't intercept the claude binary's internals, so this approach won't work anymore
+// The fetch/uuid interception was only possible when loading as a Node module
+
+// Exit with the same code as the child process
+child.on('exit', (code, signal) => {
+    if (signal) {
+        process.kill(process.pid, signal);
+    } else {
+        process.exit(code || 0);
+    }
+});
+
+child.on('error', (err) => {
+    console.error('Failed to start claude:', err);
+    process.exit(1);
+});

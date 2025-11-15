@@ -26,8 +26,8 @@ import { listDaemonSessions, stopDaemonSession } from './daemon/controlClient'
 import { handleAuthCommand } from './commands/auth'
 import { handleConnectCommand } from './commands/connect'
 import { spawnHappyCLI } from './utils/spawnHappyCLI'
-import { claudeCliPath } from './claude/claudeLocal'
-import { execFileSync } from 'node:child_process'
+import { getClaudeCli, verifyClaudeInstallation, showClaudeNotFoundError } from './utils/claudeDetection'
+import { execSync } from 'node:child_process'
 
 
 (async () => {
@@ -247,6 +247,13 @@ ${chalk.bold('To clean up runaway processes:')} Use ${chalk.cyan('happy doctor c
       args.shift()
     }
 
+    // Verify Claude installation early (before parsing args to avoid wasted work)
+    const claudeVersion = verifyClaudeInstallation()
+    if (!claudeVersion) {
+      showClaudeNotFoundError()
+      process.exit(1)
+    }
+
     // Parse command line arguments for main command
     const options: StartOptions = {}
     let showHelp = false
@@ -318,12 +325,12 @@ ${chalk.bold.cyan('Claude Code Options (from `claude --help`):')}
 `)
       
       // Run claude --help and display its output
-      // Use execFileSync with the current Node executable for cross-platform compatibility
       try {
-        const claudeHelp = execFileSync(process.execPath, [claudeCliPath, '--help'], { encoding: 'utf8' })
+        const claudePath = getClaudeCli()
+        const claudeHelp = execSync(`${claudePath} --help`, { encoding: 'utf8' })
         console.log(claudeHelp)
       } catch (e) {
-        console.log(chalk.yellow('Could not retrieve claude help. Make sure claude is installed.'))
+        showClaudeNotFoundError()
       }
       
       process.exit(0)

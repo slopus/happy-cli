@@ -4,7 +4,27 @@ Code on the go controlling claude code from your mobile device.
 
 Free. Open source. Code anywhere.
 
+## Prerequisites
+
+Happy CLI requires Claude Code to be installed separately via Homebrew.
+
+### Install Claude Code
+
+```bash
+brew install anthropic/claude/claude-code
+```
+
+Verify the installation:
+
+```bash
+claude --version
+```
+
+For more information, visit the [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code).
+
 ## Installation
+
+Once Claude Code is installed, install Happy CLI:
 
 ```bash
 npm install -g happy-coder
@@ -54,6 +74,42 @@ This will:
   `@modelcontextprotocol/sdk`, which we used to implement permission forwarding
   to mobile app
 - Claude CLI installed & logged in (`claude` command available in PATH)
+
+## Troubleshooting
+
+### "Claude Code is not installed" error
+
+If you see this error when running `happy`, verify that Claude is properly installed:
+
+```bash
+which claude
+claude --version
+```
+
+Claude should be found at one of these paths:
+
+- `/opt/homebrew/bin/claude` (Apple Silicon Mac)
+- `/usr/local/bin/claude` (Intel Mac)
+
+If Claude is not found, reinstall it with:
+
+```bash
+brew install anthropic/claude/claude-code
+```
+
+### Verify Happy CLI installation
+
+Check that Happy CLI is properly installed:
+
+```bash
+happy --help
+```
+
+If `happy` command is not found, reinstall Happy CLI:
+
+```bash
+npm install -g happy-coder
+```
 
 ## License
 
