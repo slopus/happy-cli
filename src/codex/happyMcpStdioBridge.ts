@@ -46,9 +46,10 @@ async function main() {
 
   async function ensureHttpClient(): Promise<Client> {
     if (httpClient) return httpClient;
+    // Note: 'tools: {}' capability removed in @modelcontextprotocol/sdk 1.0.0+
     const client = new Client(
       { name: 'happy-stdio-bridge', version: '1.0.0' },
-      { capabilities: { tools: {} } }
+      { capabilities: {} }
     );
 
     const transport = new StreamableHTTPClientTransport(new URL(baseUrl));
@@ -58,10 +59,10 @@ async function main() {
   }
 
   // Create STDIO MCP server
+  // Note: 'description' field removed in @modelcontextprotocol/sdk 1.0.0+
   const server = new McpServer({
     name: 'Happy MCP Bridge',
     version: '1.0.0',
-    description: 'STDIO bridge forwarding to Happy HTTP MCP',
   });
 
   // Register the single tool and forward to HTTP MCP

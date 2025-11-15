@@ -32,12 +32,12 @@ export async function startHappyServer(client: ApiSessionClient) {
 
     //
     // Create the MCP server
+    // Note: 'description' field removed in @modelcontextprotocol/sdk 1.0.0+
     //
 
     const mcp = new McpServer({
         name: "Happy MCP",
         version: "1.0.0",
-        description: "Happy CLI MCP server with chat session management tools",
     });
 
     mcp.registerTool('change_title', {

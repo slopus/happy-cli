@@ -95,4 +95,9 @@ global.fetch = function(...args) {
 Object.defineProperty(global.fetch, 'name', { value: 'fetch' });
 Object.defineProperty(global.fetch, 'length', { value: originalFetch.length });
 
-import('@anthropic-ai/claude-code/cli.js')
+// Load Claude Code CLI with shared import logic
+const { loadClaudeCodeCli } = require('./claude_code_paths.cjs');
+loadClaudeCodeCli().catch(err => {
+  console.error('Unexpected error loading Claude Code CLI:', err);
+  process.exit(1);
+});
