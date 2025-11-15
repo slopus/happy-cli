@@ -8,10 +8,12 @@ import { claudeCheckSession } from "./utils/claudeCheckSession";
 import { getProjectPath } from "./utils/path";
 import { projectPath } from "@/projectPath";
 import { systemPrompt } from "./utils/systemPrompt";
+import { getClaudeCli } from "@/utils/claudeDetection";
 
 
-// Get Claude CLI path from project root
-export const claudeCliPath = resolve(join(projectPath(), 'scripts', 'claude_local_launcher.cjs'))
+// Get Claude CLI path - now uses Homebrew-installed binary wrapped by launcher
+export const claudeCliPath = getClaudeCli()
+export const claudeLocalLauncherPath = resolve(join(projectPath(), 'scripts', 'claude_local_launcher.cjs'))
 
 export async function claudeLocal(opts: {
     abort: AbortSignal,
@@ -97,17 +99,18 @@ export async function claudeLocal(opts: {
                 args.push(...opts.claudeArgs)
             }
 
-            if (!claudeCliPath || !existsSync(claudeCliPath)) {
+            if (!claudeLocalLauncherPath || !existsSync(claudeLocalLauncherPath)) {
                 throw new Error('Claude local launcher not found. Please ensure HAPPY_PROJECT_ROOT is set correctly for development.');
             }
 
             // Prepare environment variables
             const env = {
                 ...process.env,
-                ...opts.claudeEnvVars
+                ...opts.claudeEnvVars,
+                CLAUDE_CLI_PATH: claudeCliPath // Pass the claude binary path to the launcher
             }
 
-            const child = spawn('node', [claudeCliPath, ...args], {
+            const child = spawn('node', [claudeLocalLauncherPath, ...args], {
                 stdio: ['inherit', 'inherit', 'inherit', 'pipe'],
                 signal: opts.abort,
                 cwd: opts.path,

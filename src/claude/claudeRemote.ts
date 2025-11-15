@@ -10,6 +10,7 @@ import { getProjectPath } from "./utils/path";
 import { awaitFileExist } from "@/modules/watcher/awaitFileExist";
 import { systemPrompt } from "./utils/systemPrompt";
 import { PermissionResult } from "./sdk/types";
+import { getClaudeCli } from "@/utils/claudeDetection";
 
 export async function claudeRemote(opts: {
 
@@ -119,11 +120,8 @@ export async function claudeRemote(opts: {
         allowedTools: initial.mode.allowedTools ? initial.mode.allowedTools.concat(opts.allowedTools) : opts.allowedTools,
         disallowedTools: initial.mode.disallowedTools,
         canCallTool: (toolName: string, input: unknown, options: { signal: AbortSignal }) => opts.canCallTool(toolName, input, mode, options),
-        executable: 'node',
         abort: opts.signal,
-        pathToClaudeCodeExecutable: (() => {
-            return resolve(join(projectPath(), 'scripts', 'claude_remote_launcher.cjs'));
-        })(),
+        pathToClaudeCodeExecutable: getClaudeCli(),
     }
 
     // Track thinking state

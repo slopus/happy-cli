@@ -6,6 +6,7 @@
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { logger } from '@/ui/logger'
+import { getClaudeCli } from '@/utils/claudeDetection'
 
 /**
  * Get the directory path of the current module
@@ -15,9 +16,10 @@ const __dirname = join(__filename, '..')
 
 /**
  * Get default path to Claude Code executable
+ * Now returns the Homebrew-installed claude binary
  */
 export function getDefaultClaudeCodePath(): string {
-    return join(__dirname, '..', '..', '..', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js')
+    return getClaudeCli()
 }
 
 /**
