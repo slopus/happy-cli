@@ -1,4 +1,4 @@
-import { SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-code";
+import type { SDKMessage, SDKUserMessage } from "@/claude/sdk/types";
 import { logger } from "@/ui/logger";
 
 /**
@@ -36,8 +36,7 @@ export class MessageQueue implements AsyncIterable<SDKUserMessage> {
                     role: 'user',
                     content: message,
                 },
-                parent_tool_use_id: null,
-                session_id: '',
+                parent_tool_use_id: undefined,
             });
         } else {
             logger.debug(`[MessageQueue] No waiter found. Adding to queue: "${message}"`);
@@ -47,8 +46,7 @@ export class MessageQueue implements AsyncIterable<SDKUserMessage> {
                     role: 'user',
                     content: message,
                 },
-                parent_tool_use_id: null,
-                session_id: '',
+                parent_tool_use_id: undefined,
             });
         }
         
