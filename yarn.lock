@@ -10,22 +10,24 @@
     ansi-styles "^6.2.1"
     is-fullwidth-code-point "^5.0.0"
 
-"@anthropic-ai/claude-code@2.0.14":
-  version "2.0.14"
-  resolved "https://registry.yarnpkg.com/@anthropic-ai/claude-code/-/claude-code-2.0.14.tgz#c4b9d06bb34c4478fd835afb5f58ea384a54db06"
-  integrity sha512-Q4A4Jo7WZ4aMUIu8CUIIo2Jt66kl2vrEjRg/kYzX6syuK0DiV3WhdMZceSvLAU0BFpX1L8aERhRWxLWDxX3fYg==
+"@anthropic-ai/claude-code@2.0.53":
+  version "2.0.53"
+  resolved "https://registry.yarnpkg.com/@anthropic-ai/claude-code/-/claude-code-2.0.53.tgz#ccb173852c71aa46030d7b0dad3c213e0ae7fd79"
+  integrity sha512-a2Z0aNPLvWeK+ckVJMATiLOFrNzRJDQQsSKHl04dpvLnM/QSPaFwLvBaJGl1tMogeq6Ahx+7NKCDVb+8d+2FXQ==
   optionalDependencies:
     "@img/sharp-darwin-arm64" "^0.33.5"
     "@img/sharp-darwin-x64" "^0.33.5"
     "@img/sharp-linux-arm" "^0.33.5"
     "@img/sharp-linux-arm64" "^0.33.5"
     "@img/sharp-linux-x64" "^0.33.5"
+    "@img/sharp-linuxmusl-arm64" "^0.33.5"
+    "@img/sharp-linuxmusl-x64" "^0.33.5"
     "@img/sharp-win32-x64" "^0.33.5"
 
-"@anthropic-ai/sdk@0.65.0":
-  version "0.65.0"
-  resolved "https://registry.npmjs.org/@anthropic-ai/sdk/-/sdk-0.65.0.tgz"
-  integrity sha512-zIdPOcrCVEI8t3Di40nH4z9EoeyGZfXbYSvWdDLsB/KkaSYMnEgC7gmcgWu83g2NTn1ZTpbMvpdttWDGGIk6zw==
+"@anthropic-ai/sdk@0.71.0":
+  version "0.71.0"
+  resolved "https://registry.yarnpkg.com/@anthropic-ai/sdk/-/sdk-0.71.0.tgz#59fed712060dd5c4f232d18cded78304797df845"
+  integrity sha512-go1XeWXmpxuiTkosSXpb8tokLk2ZLkIRcXpbWVwJM6gH5OBtHOVsfPfGuqI1oW7RRt4qc59EmYbrXRZ0Ng06Jw==
   dependencies:
     json-schema-to-ts "^3.1.1"
 
@@ -355,6 +357,16 @@
   resolved "https://registry.npmjs.org/@img/sharp-libvips-linux-x64/-/sharp-libvips-linux-x64-1.0.4.tgz"
   integrity sha512-MmWmQ3iPFZr0Iev+BAgVMb3ZyC4KeFc3jFxnNbEPas60e1cIfevbtuyf9nDGIzOaW9PdnDciJm+wFFaTlj5xYw==
 
+"@img/sharp-libvips-linuxmusl-arm64@1.0.4":
+  version "1.0.4"
+  resolved "https://registry.yarnpkg.com/@img/sharp-libvips-linuxmusl-arm64/-/sharp-libvips-linuxmusl-arm64-1.0.4.tgz#166778da0f48dd2bded1fa3033cee6b588f0d5d5"
+  integrity sha512-9Ti+BbTYDcsbp4wfYib8Ctm1ilkugkA/uscUn6UXK1ldpC1JjiXbLfFZtRlBhjPZ5o1NCLiDbg8fhUPKStHoTA==
+
+"@img/sharp-libvips-linuxmusl-x64@1.0.4":
+  version "1.0.4"
+  resolved "https://registry.yarnpkg.com/@img/sharp-libvips-linuxmusl-x64/-/sharp-libvips-linuxmusl-x64-1.0.4.tgz#93794e4d7720b077fcad3e02982f2f1c246751ff"
+  integrity sha512-viYN1KX9m+/hGkJtvYYp+CCLgnJXwiQB39damAO7WMdKWlIhmYTfHjwSbQeUK/20vY154mwezd9HflVFM1wVSw==
+
 "@img/sharp-linux-arm64@^0.33.5":
   version "0.33.5"
   resolved "https://registry.npmjs.org/@img/sharp-linux-arm64/-/sharp-linux-arm64-0.33.5.tgz"
@@ -375,6 +387,20 @@
   integrity sha512-opC+Ok5pRNAzuvq1AG0ar+1owsu842/Ab+4qvU879ippJBHvyY5n2mxF1izXqkPYlGuP/M556uh53jRLJmzTWA==
   optionalDependencies:
     "@img/sharp-libvips-linux-x64" "1.0.4"
+
+"@img/sharp-linuxmusl-arm64@^0.33.5":
+  version "0.33.5"
+  resolved "https://registry.yarnpkg.com/@img/sharp-linuxmusl-arm64/-/sharp-linuxmusl-arm64-0.33.5.tgz#252975b915894fb315af5deea174651e208d3d6b"
+  integrity sha512-XrHMZwGQGvJg2V/oRSUfSAfjfPxO+4DkiRh6p2AFjLQztWUuY/o8Mq0eMQVIY7HJ1CDQUJlxGGZRw1a5bqmd1g==
+  optionalDependencies:
+    "@img/sharp-libvips-linuxmusl-arm64" "1.0.4"
+
+"@img/sharp-linuxmusl-x64@^0.33.5":
+  version "0.33.5"
+  resolved "https://registry.yarnpkg.com/@img/sharp-linuxmusl-x64/-/sharp-linuxmusl-x64-0.33.5.tgz#3f4609ac5d8ef8ec7dadee80b560961a60fd4f48"
+  integrity sha512-WT+d/cgqKkkKySYmqoZ8y3pxx7lx9vVejxW/W4DOFMYVSkErR+w7mf2u8m/y4+xHe7yY9DAXQMWQhpnMuFfScw==
+  optionalDependencies:
+    "@img/sharp-libvips-linuxmusl-x64" "1.0.4"
 
 "@img/sharp-win32-x64@^0.33.5":
   version "0.33.5"
