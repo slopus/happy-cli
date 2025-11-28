@@ -7,6 +7,7 @@ Free. Open source. Code anywhere.
 **This fork includes:**
 - Claude Code 2.0.55 (latest)
 - Claude Opus 4.5 support
+- OpenAI Codex support with GPT-5.1-Codex-Max (xhigh/high/medium reasoning)
 
 ## Installation
 
