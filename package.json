@@ -1,13 +1,13 @@
 {
-  "name": "happy-coder",
-  "version": "0.11.2",
+  "name": "@yongkangc/happy-coder",
+  "version": "0.12.0",
   "description": "Mobile and Web client for Claude Code and Codex",
-  "author": "Kirill Dubovitskiy",
+  "author": "yongkangc",
   "license": "MIT",
   "type": "module",
-  "homepage": "https://github.com/slopus/happy-cli",
-  "bugs": "https://github.com/slopus/happy-cli/issues",
-  "repository": "slopus/happy-cli",
+  "homepage": "https://github.com/yongkangc/happy-cli",
+  "bugs": "https://github.com/yongkangc/happy-cli/issues",
+  "repository": "yongkangc/happy-cli",
   "bin": {
     "happy": "./bin/happy.mjs",
     "happy-mcp": "./bin/happy-mcp.mjs"
@@ -68,7 +68,7 @@
     "postinstall": "node scripts/unpack-tools.cjs"
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.0.24",
+    "@anthropic-ai/claude-code": "2.0.55",
     "@anthropic-ai/sdk": "0.65.0",
     "@modelcontextprotocol/sdk": "^1.15.1",
     "@stablelib/base64": "^2.0.1",
