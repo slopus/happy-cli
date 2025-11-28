@@ -57,6 +57,11 @@ This will:
 - Node.js >= 20.0.0
 - Claude CLI installed & logged in (`claude` command available in PATH)
 
+## Related Projects
+
+- **[happy](https://github.com/yongkangc/happy)** - Mobile & web client app
+- **[happy-server](https://github.com/slopus/happy-server)** - Backend server for encrypted sync
+
 ## License
 
 MIT
