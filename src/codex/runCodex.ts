@@ -23,6 +23,7 @@ import { MessageBuffer } from "@/ui/ink/messageBuffer";
 import { CodexDisplay } from "@/ui/ink/CodexDisplay";
 import { trimIdent } from "@/utils/trimIdent";
 import type { CodexSessionConfig } from './types';
+import { mapModelMode } from './types';
 import { notifyDaemonSessionStarted } from "@/daemon/controlClient";
 import { registerKillSessionHandler } from "@/claude/registerKillSessionHandler";
 import { delay } from "@/utils/time";
@@ -641,8 +642,16 @@ export async function runCodex(opts: {
                         'approval-policy': approvalPolicy,
                         config: { mcp_servers: mcpServers }
                     };
+
+                    // Map model mode to actual model name and reasoning effort
                     if (message.mode.model) {
-                        startConfig.model = message.mode.model;
+                        const { model, reasoningEffort } = mapModelMode(message.mode.model);
+                        if (model) {
+                            startConfig.model = model;
+                        }
+                        if (reasoningEffort) {
+                            startConfig['reasoning-effort'] = reasoningEffort;
+                        }
                     }
                     
                     // Check for resume file from multiple sources
