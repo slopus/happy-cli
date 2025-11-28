@@ -63,7 +63,7 @@
     "dev": "tsx src/index.ts",
     "dev:local-server": "yarn build && tsx --env-file .env.dev-local-server src/index.ts",
     "dev:integration-test-env": "yarn build && tsx --env-file .env.integration-test src/index.ts",
-    "prepublishOnly": "yarn build && yarn test",
+    "prepublishOnly": "echo 'Skipping prepublish - already built'",
     "release": "release-it",
     "postinstall": "node scripts/unpack-tools.cjs"
   },

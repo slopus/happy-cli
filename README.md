@@ -1,13 +1,17 @@
-# Happy
+# Happy CLI (@yongkangc/happy-coder)
 
-Code on the go controlling claude code from your mobile device.
+Code on the go controlling Claude Code from your mobile device.
 
 Free. Open source. Code anywhere.
+
+**This fork includes:**
+- Claude Code 2.0.55 (latest)
+- Claude Opus 4.5 support
 
 ## Installation
 
 ```bash
-npm install -g happy-coder
+npm install -g @yongkangc/happy-coder
 ```
 
 ## Usage
@@ -50,9 +54,6 @@ This will:
 ## Requirements
 
 - Node.js >= 20.0.0
-  - Required by `eventsource-parser@3.0.5`, which is required by
-  `@modelcontextprotocol/sdk`, which we used to implement permission forwarding
-  to mobile app
 - Claude CLI installed & logged in (`claude` command available in PATH)
 
 ## License
