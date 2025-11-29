@@ -82,18 +82,21 @@ import { execFileSync } from 'node:child_process'
     try {
       const { runCodex } = await import('@/codex/runCodex');
       
-      // Parse startedBy argument
+      // Parse startedBy and name arguments
       let startedBy: 'daemon' | 'terminal' | undefined = undefined;
+      let name: string | undefined = undefined;
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--started-by') {
           startedBy = args[++i] as 'daemon' | 'terminal';
+        } else if (args[i] === '--name') {
+          name = args[++i];
         }
       }
-      
+
       const {
         credentials
       } = await authAndSetupMachineIfNeeded();
-      await runCodex({credentials, startedBy});
+      await runCodex({credentials, startedBy, name});
       // Do not force exit here; allow instrumentation to show lingering handles
     } catch (error) {
       console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
@@ -271,6 +274,8 @@ ${chalk.bold('To clean up runaway processes:')} Use ${chalk.cyan('happy doctor c
         unknownArgs.push('--dangerously-skip-permissions')
       } else if (arg === '--started-by') {
         options.startedBy = args[++i] as 'daemon' | 'terminal'
+      } else if (arg === '--name') {
+        options.name = args[++i]
       } else {
         // Pass unknown arguments through to claude
         unknownArgs.push(arg)
@@ -303,10 +308,14 @@ ${chalk.bold('Usage:')}
 
 ${chalk.bold('Examples:')}
   happy                    Start session
-  happy --yolo             Start with bypassing permissions 
+  happy --name "Project"   Set custom session name (shows in mobile app)
+  happy --yolo             Start with bypassing permissions
                             happy sugar for --dangerously-skip-permissions
   happy auth login --force Authenticate
   happy doctor             Run diagnostics
+
+${chalk.bold('Happy-specific options:')}
+  --name <title>           Set session title (avoids Claude roundtrip)
 
 ${chalk.bold('Happy supports ALL Claude options!')}
   Use any claude flag with happy as you would with claude. Our favorite:
