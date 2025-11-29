@@ -272,7 +272,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                 disallowedTools: messageDisallowedTools
             };
             messageQueue.pushIsolateAndClear(specialCommand.originalMessage || message.content.text, enhancedMode);
-            logger.debugLargeJson('[start] /compact command pushed to queue:', message);
+            logger.debugLargeJson('[start] /clear command pushed to queue:', message);
             return;
         }
 
@@ -304,7 +304,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                     archivedBy: 'cli',
                     archiveReason: 'User terminated'
                 }));
-                
+
                 // Send session death message
                 session.sendSessionDeath();
                 await session.flush();
