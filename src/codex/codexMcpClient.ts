@@ -53,9 +53,11 @@ export class CodexMcpClient {
     private permissionHandler: CodexPermissionHandler | null = null;
 
     constructor() {
+        // Note: MCP SDK 1.0.0+ removed 'description' field and 'tools: {}' capability
+        // Capabilities are now negotiated during connection handshake
         this.client = new Client(
             { name: 'happy-codex-client', version: '1.0.0' },
-            { capabilities: { tools: {}, elicitation: {} } }
+            { capabilities: { elicitation: {} } }
         );
 
         this.client.setNotificationHandler(z.object({

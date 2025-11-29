@@ -1,4 +1,7 @@
-import { SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-code";
+// Note: Import from local types instead of @anthropic-ai/claude-code SDK
+// This decouples MessageQueue from SDK internals and allows us to maintain
+// stable type definitions even if SDK types change between versions
+import { SDKUserMessage } from "@/claude/sdk/types";
 import { logger } from "@/ui/logger";
 
 /**
@@ -36,7 +39,7 @@ export class MessageQueue implements AsyncIterable<SDKUserMessage> {
                     role: 'user',
                     content: message,
                 },
-                parent_tool_use_id: null,
+                parent_tool_use_id: undefined,
                 session_id: '',
             });
         } else {
@@ -47,7 +50,7 @@ export class MessageQueue implements AsyncIterable<SDKUserMessage> {
                     role: 'user',
                     content: message,
                 },
-                parent_tool_use_id: null,
+                parent_tool_use_id: undefined,
                 session_id: '',
             });
         }
