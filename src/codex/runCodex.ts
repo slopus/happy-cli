@@ -739,11 +739,11 @@ export async function runCodex(opts: {
                         // Check for resume file from multiple sources
                         let resumeFile: string | null = null;
                         
-                        // Priority 1: Explicit resume file from mode change
+                        // Priority 1: Explicit resume file from mode change or local→remote switch
                         if (nextExperimentalResume) {
                             resumeFile = nextExperimentalResume;
                             nextExperimentalResume = null; // consume once
-                            logger.debug('[Codex] Using resume file from mode change:', resumeFile);
+                            logger.debug('[Codex] Using resume file from mode change/local switch:', resumeFile);
                         }
                         // Priority 2: Resume from stored abort session
                         else if (storedSessionIdForResume) {
@@ -755,7 +755,16 @@ export async function runCodex(opts: {
                             }
                             storedSessionIdForResume = null; // consume once
                         }
-                        
+                        // Priority 3: Fall back to latest Codex session log (e.g., from local CLI)
+                        else {
+                            const latest = findCodexResumeFile(null);
+                            if (latest) {
+                                resumeFile = latest;
+                                logger.debug('[Codex] Using latest Codex session file for resume:', resumeFile);
+                                messageBuffer?.addMessage('Resuming latest Codex context...', 'status');
+                            }
+                        }
+
                         // Apply resume file if found
                         if (resumeFile) {
                             (startConfig.config as any).experimental_resume = resumeFile;
