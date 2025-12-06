@@ -305,9 +305,8 @@ export async function runCodex(opts: {
 
     registerKillSessionHandler(session.rpcHandlerManager, handleKillSession);
 
-    // Helper: find Codex session transcript for a given sessionId
-    function findCodexResumeFile(sessionId: string | null): string | null {
-        if (!sessionId) return null;
+    // Helper: find Codex session transcript for a given sessionId (or latest if none)
+    function findCodexResumeFile(sessionId?: string | null): string | null {
         try {
             const codexHomeDir = process.env.CODEX_HOME || join(os.homedir(), '.codex');
             const rootDir = join(codexHomeDir, 'sessions');
@@ -332,7 +331,10 @@ export async function runCodex(opts: {
             }
 
             const candidates = collectFilesRecursive(rootDir)
-                .filter(full => full.endsWith(`-${sessionId}.jsonl`))
+                .filter(full => {
+                    if (!sessionId) return full.endsWith('.jsonl');
+                    return full.endsWith(`-${sessionId}.jsonl`);
+                })
                 .filter(full => {
                     try { return fs.statSync(full).isFile(); } catch { return false; }
                 })
@@ -574,6 +576,16 @@ export async function runCodex(opts: {
             }
         } finally {
             messageQueue.setOnMessage(null);
+            // If we're switching to remote, capture the latest Codex session log for resume
+            if (exitReason === 'switch') {
+                const latestResume = findCodexResumeFile(null);
+                if (latestResume) {
+                    logger.debug('[codex][local] Captured latest Codex session file for resume:', latestResume);
+                    nextExperimentalResume = latestResume;
+                } else {
+                    logger.debug('[codex][local] No Codex session file found to resume');
+                }
+            }
         }
 
         return exitReason || 'exit';
