@@ -538,8 +538,17 @@ export async function runCodex(opts: {
             onRemoteMessage();
         });
 
+        // If we have a stored session from remote mode, try to resume it
+        const resumeId = storedSessionIdForResume;
+        if (resumeId) {
+            logger.debug(`[codex][local] Resuming Codex session ${resumeId}`);
+            // Only consume after we launch to avoid losing it on spawn errors
+            storedSessionIdForResume = null;
+        }
+
         try {
-            const child = spawn('codex', [], {
+            const args = resumeId ? ['resume', resumeId] : [];
+            const child = spawn('codex', args, {
                 stdio: 'inherit',
                 cwd: process.cwd(),
                 env: {
