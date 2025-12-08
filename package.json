@@ -1,16 +1,19 @@
 {
   "name": "@yongkangc/happy-coder",
-  "version": "0.13.2",
+  "version": "0.13.4",
   "description": "Mobile and Web client for Claude Code and Codex",
   "author": "yongkangc",
   "license": "MIT",
   "type": "module",
   "homepage": "https://github.com/yongkangc/happy-cli",
   "bugs": "https://github.com/yongkangc/happy-cli/issues",
-  "repository": "yongkangc/happy-cli",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yongkangc/happy-cli.git"
+  },
   "bin": {
-    "happy": "./bin/happy.mjs",
-    "happy-mcp": "./bin/happy-mcp.mjs"
+    "happy": "bin/happy.mjs",
+    "happy-mcp": "bin/happy-mcp.mjs"
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
