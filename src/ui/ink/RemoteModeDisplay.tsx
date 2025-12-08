@@ -7,9 +7,22 @@ interface RemoteModeDisplayProps {
     logPath?: string
     onExit?: () => void
     onSwitchToLocal?: () => void
+    title?: string
+    switchHint?: string
+    switchingText?: string
+    exitHint?: string
 }
 
-export const RemoteModeDisplay: React.FC<RemoteModeDisplayProps> = ({ messageBuffer, logPath, onExit, onSwitchToLocal }) => {
+export const RemoteModeDisplay: React.FC<RemoteModeDisplayProps> = ({
+    messageBuffer,
+    logPath,
+    onExit,
+    onSwitchToLocal,
+    title = "📡 Remote Mode - Claude Messages",
+    switchHint = "📱 Press space to switch to local mode • Ctrl-C to exit",
+    switchingText = "Switching to local mode...",
+    exitHint = "⚠️  Press Ctrl-C again to exit completely"
+}) => {
     const [messages, setMessages] = useState<BufferedMessage[]>([])
     const [confirmationMode, setConfirmationMode] = useState<'exit' | 'switch' | null>(null)
     const [actionInProgress, setActionInProgress] = useState<'exiting' | 'switching' | null>(null)
@@ -131,7 +144,7 @@ export const RemoteModeDisplay: React.FC<RemoteModeDisplayProps> = ({ messageBuf
                 overflow="hidden"
             >
                 <Box flexDirection="column" marginBottom={1}>
-                    <Text color="gray" bold>📡 Remote Mode - Claude Messages</Text>
+                    <Text color="gray" bold>{title}</Text>
                     <Text color="gray" dimColor>{'─'.repeat(Math.min(terminalWidth - 4, 60))}</Text>
                 </Box>
                 
@@ -173,11 +186,11 @@ export const RemoteModeDisplay: React.FC<RemoteModeDisplayProps> = ({ messageBuf
                         </Text>
                     ) : actionInProgress === 'switching' ? (
                         <Text color="gray" bold>
-                            Switching to local mode...
+                            {switchingText}
                         </Text>
                     ) : confirmationMode === 'exit' ? (
                         <Text color="red" bold>
-                            ⚠️  Press Ctrl-C again to exit completely
+                            {exitHint}
                         </Text>
                     ) : confirmationMode === 'switch' ? (
                         <Text color="yellow" bold>
@@ -186,7 +199,7 @@ export const RemoteModeDisplay: React.FC<RemoteModeDisplayProps> = ({ messageBuf
                     ) : (
                         <>
                             <Text color="green" bold>
-                                📱 Press space to switch to local mode • Ctrl-C to exit
+                                {switchHint}
                             </Text>
                         </>
                     )}
