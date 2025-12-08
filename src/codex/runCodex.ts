@@ -540,6 +540,12 @@ export async function runCodex(opts: {
             onRemoteMessage();
         });
 
+        // If a remote message is already queued, switch immediately
+        if (messageQueue.size() > 0) {
+            logger.debug('[codex][local] Pending remote message detected before spawn; switching to agent view');
+            onRemoteMessage();
+        }
+
         // If we have a stored session from remote mode, try to resume it
         const resumeId = storedSessionIdForResume;
         if (resumeId) {
