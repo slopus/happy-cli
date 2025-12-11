@@ -62,6 +62,7 @@ export function emitReadyIfIdle({ pending, queueSize, shouldExit, sendReady, not
 export async function runCodex(opts: {
     credentials: Credentials;
     startedBy?: 'daemon' | 'terminal';
+    name?: string;
 }): Promise<void> {
     type PermissionMode = 'default' | 'read-only' | 'safe-yolo' | 'yolo';
     interface EnhancedMode {
@@ -107,6 +108,10 @@ export async function runCodex(opts: {
         host: os.hostname(),
         version: packageJson.version,
         os: os.platform(),
+        summary: opts.name ? {
+            text: opts.name,
+            updatedAt: Date.now()
+        } : undefined,
         machineId: machineId,
         homeDir: os.homedir(),
         happyHomeDir: configuration.happyHomeDir,
