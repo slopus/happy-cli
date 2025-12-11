@@ -5,6 +5,7 @@ import { mkdirSync, existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { logger } from "@/ui/logger";
 import { claudeCheckSession } from "./utils/claudeCheckSession";
+import { claudeFindLastSession } from "./utils/claudeFindLastSession";
 import { getProjectPath } from "./utils/path";
 import { projectPath } from "@/projectPath";
 import { systemPrompt } from "./utils/systemPrompt";
@@ -33,10 +34,19 @@ export async function claudeLocal(opts: {
     // - If resuming an existing session: use --resume (Claude keeps the same session ID)
     // - If starting fresh: generate UUID and pass via --session-id
     let startFrom = opts.sessionId;
-    if (opts.sessionId && !claudeCheckSession(opts.sessionId, opts.path)) {
-        startFrom = null;
+
+    // Convert --continue to --resume: find last session and use existing resume logic
+    if (!startFrom && opts.claudeArgs?.includes('--continue')) {
+        const lastSession = claudeFindLastSession(opts.path);
+        if (lastSession) {
+            startFrom = lastSession;
+            logger.debug(`[ClaudeLocal] Converting --continue to --resume ${lastSession}`);
+        }
+        // Remove --continue from claudeArgs since we're handling it
+        opts.claudeArgs = opts.claudeArgs?.filter(arg => arg !== '--continue');
     }
 
+  
     // Generate new session ID if not resuming
     const newSessionId = startFrom ? null : randomUUID();
     const effectiveSessionId = startFrom || newSessionId!;
