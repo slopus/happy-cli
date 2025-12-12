@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { CodexPermissionHandler } from './utils/permissionHandler';
 import { execSync } from 'child_process';
+import { randomUUID } from 'node:crypto';
 
 const DEFAULT_TIMEOUT = 14 * 24 * 60 * 60 * 1000; // 14 days, which is the half of the maximum possible timeout (~28 days for int32 value in NodeJS)
 
@@ -107,56 +108,70 @@ export class CodexMcpClient {
     }
 
     private registerPermissionHandlers(): void {
-        // Register handler for exec command approval requests
-        this.client.setRequestHandler(
-            ElicitRequestSchema,
-            async (request) => {
-                console.log('[CodexMCP] Received elicitation request:', request.params);
+        // Codex requests tool approvals via MCP `elicitation/create`.
+        // The MCP SDK enforces that we respond with action: accept|decline|cancel.
+        this.client.setRequestHandler(ElicitRequestSchema, async (request) => {
+            const params: any = request.params;
+            logger.debug('[CodexMCP] Received elicitation request:', params);
 
-                // Load params
-                const params = request.params as unknown as {
-                    message: string,
-                    codex_elicitation: string,
-                    codex_mcp_tool_call_id: string,
-                    codex_event_id: string,
-                    codex_call_id: string,
-                    codex_command: string[],
-                    codex_cwd: string
-                }
-                const toolName = 'CodexBash';
+            const toolName = 'CodexBash';
 
-                // If no permission handler set, deny by default
-                if (!this.permissionHandler) {
-                    logger.debug('[CodexMCP] No permission handler set, denying by default');
-                    return {
-                        decision: 'denied' as const,
-                    };
-                }
+            // This ID only needs to correlate the mobile approval roundtrip.
+            const toolCallId: string =
+                (typeof params?.codex_call_id === 'string' && params.codex_call_id) ||
+                (typeof params?.codex_mcp_tool_call_id === 'string' && params.codex_mcp_tool_call_id) ||
+                (typeof params?.codex_event_id === 'string' && params.codex_event_id) ||
+                (typeof params?._meta?.codex_call_id === 'string' && params._meta.codex_call_id) ||
+                (typeof params?._meta?.codex_mcp_tool_call_id === 'string' && params._meta.codex_mcp_tool_call_id) ||
+                (typeof params?._meta?.codex_event_id === 'string' && params._meta.codex_event_id) ||
+                (params?._meta?.progressToken != null ? String(params._meta.progressToken) : '') ||
+                randomUUID();
 
-                try {
-                    // Request permission through the handler
-                    const result = await this.permissionHandler.handleToolCall(
-                        params.codex_call_id,
-                        toolName,
-                        {
-                            command: params.codex_command,
-                            cwd: params.codex_cwd
-                        }
-                    );
+            const commandRaw = params?.codex_command ?? params?.command;
+            const command: string[] | undefined = Array.isArray(commandRaw)
+                ? commandRaw.map((v: any) => String(v))
+                : typeof commandRaw === 'string'
+                    ? [commandRaw]
+                    : undefined;
 
-                    logger.debug('[CodexMCP] Permission result:', result);
-                    return {
-                        decision: result.decision
-                    }
-                } catch (error) {
-                    logger.debug('[CodexMCP] Error handling permission request:', error);
-                    return {
-                        decision: 'denied' as const,
-                        reason: error instanceof Error ? error.message : 'Permission request failed'
-                    };
-                }
+            const cwd: string | undefined =
+                typeof params?.codex_cwd === 'string'
+                    ? params.codex_cwd
+                    : typeof params?.cwd === 'string'
+                        ? params.cwd
+                        : undefined;
+
+            // Preserve best-effort context for the mobile UI.
+            const toolInput: Record<string, unknown> = {
+                message: params?.message,
+                requestedSchema: params?.requestedSchema,
+            };
+            if (command) toolInput.command = command;
+            if (cwd) toolInput.cwd = cwd;
+            if (params?.parsed_cmd) toolInput.parsed_cmd = params.parsed_cmd;
+
+            if (!this.permissionHandler) {
+                logger.debug('[CodexMCP] No permission handler set, declining by default');
+                return { action: 'decline' as const };
             }
-        );
+
+            try {
+                const result = await this.permissionHandler.handleToolCall(toolCallId, toolName, toolInput);
+
+                // Map Happy's permission decisions to MCP elicitation actions.
+                const action =
+                    result.decision === 'approved' || result.decision === 'approved_for_session'
+                        ? ('accept' as const)
+                        : result.decision === 'denied'
+                            ? ('decline' as const)
+                            : ('cancel' as const);
+
+                return { action };
+            } catch (error) {
+                logger.debug('[CodexMCP] Error handling permission request:', error);
+                return { action: 'decline' as const };
+            }
+        });
 
         logger.debug('[CodexMCP] Permission handlers registered');
     }
