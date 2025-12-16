@@ -45,7 +45,7 @@ export class ApiSessionClient extends EventEmitter {
             encryptionVariant: this.encryptionVariant,
             logger: (msg, data) => logger.debug(msg, data)
         });
-        registerCommonHandlers(this.rpcHandlerManager);
+        registerCommonHandlers(this.rpcHandlerManager, this.metadata.path);
 
         //
         // Create socket
@@ -201,7 +201,7 @@ export class ApiSessionClient extends EventEmitter {
         });
 
         // Track usage from assistant messages
-        if (body.type === 'assistant' && body.message.usage) {
+        if (body.type === 'assistant' && body.message?.usage) {
             try {
                 this.sendUsageData(body.message.usage);
             } catch (error) {
