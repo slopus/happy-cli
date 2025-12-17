@@ -69,15 +69,21 @@ export async function claudeLocal(opts: {
         process.stdin.pause();
         await new Promise<void>((r, reject) => {
             const args: string[] = []
-            
+
+            // Check if user already provided resume/continue flags in claudeArgs
+            const hasResumeFlag = opts.claudeArgs?.some(arg =>
+                arg === '-r' || arg === '--resume' || arg === '--continue' || arg === '-c'
+            ) ?? false;
+
             if (startFrom) {
                 // Resume existing session (Claude preserves the session ID)
                 args.push('--resume', startFrom)
-            } else {
+            } else if (!hasResumeFlag) {
+                // Only add --session-id if user hasn't provided their own resume/continue flag
                 // New session with our generated UUID
                 args.push('--session-id', newSessionId!)
             }
-            
+
             args.push('--append-system-prompt', systemPrompt);
 
             if (opts.mcpServers && Object.keys(opts.mcpServers).length > 0) {
