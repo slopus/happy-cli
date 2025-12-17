@@ -23,7 +23,7 @@ export async function startHappyServer(client: ApiSessionClient) {
                 summary: title,
                 leafUuid: randomUUID()
             });
-            
+
             return { success: true };
         } catch (error) {
             return { success: false, error: String(error) };
@@ -48,7 +48,7 @@ export async function startHappyServer(client: ApiSessionClient) {
     }, async (args) => {
         const response = await handler(args.title);
         logger.debug('[happyMCP] Response:', response);
-        
+
         if (response.success) {
             return {
                 content: [
@@ -67,6 +67,34 @@ export async function startHappyServer(client: ApiSessionClient) {
                         text: `Failed to change chat title: ${response.error || 'Unknown error'}`,
                     },
                 ],
+                isError: true,
+            };
+        }
+    });
+
+    // Add notify_user tool
+    mcp.registerTool('notify_user', {
+        description: 'Send a notification message to the user on their mobile device',
+        title: 'Notify User',
+        inputSchema: {
+            message: z.string().describe('The message to send to the user'),
+            level: z.enum(['info', 'warning', 'error']).optional().describe('Notification level'),
+        },
+    }, async (args) => {
+        try {
+            // Send as a session event/message
+            client.sendSessionEvent({
+                type: 'message',
+                message: `📱 [IDE Notification] ${args.level ? `[${args.level.toUpperCase()}] ` : ''}${args.message}`
+            });
+
+            return {
+                content: [{ type: 'text', text: `Notification sent to user device: "${args.message}"` }],
+                isError: false,
+            };
+        } catch (error) {
+            return {
+                content: [{ type: 'text', text: `Failed to send notification: ${String(error)}` }],
                 isError: true,
             };
         }
@@ -101,9 +129,12 @@ export async function startHappyServer(client: ApiSessionClient) {
         });
     });
 
+    // Write URL to a file so other tools can find it easily if needed, or just log it
+    // For now, we rely on the main process logging it
+
     return {
         url: baseUrl.toString(),
-        toolNames: ['change_title'],
+        toolNames: ['change_title', 'notify_user'],
         stop: () => {
             logger.debug('[happyMCP] Stopping server');
             mcp.close();
