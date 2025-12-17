@@ -38,6 +38,12 @@ describe('getProjectPath', () => {
         expect(result).toBe(join('/home/user', '.claude', 'projects', '-var-www-my-site-com-public'));
     });
 
+    it('should replace underscores with hyphens in the project path', () => {
+        const workingDir = '/var/www/test__underscore';
+        const result = getProjectPath(workingDir);
+        expect(result).toBe(join('/home/user', '.claude', 'projects', '-var-www-test--underscore'));
+    });
+
     it('should handle relative paths by resolving them first', () => {
         const workingDir = './my-project';
         const result = getProjectPath(workingDir);
