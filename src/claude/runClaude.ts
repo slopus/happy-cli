@@ -21,6 +21,9 @@ import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { registerKillSessionHandler } from './registerKillSessionHandler';
 import { projectPath } from '../projectPath';
 import { resolve } from 'node:path';
+import { startOfflineReconnection, connectionState } from '@/utils/serverConnectionErrors';
+import { claudeLocal } from '@/claude/claudeLocal';
+import { createSessionScanner } from '@/claude/utils/sessionScanner';
 
 export interface StartOptions {
     model?: string
@@ -47,6 +50,9 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         // TODO: Eventually we should error here instead of silently switching
         // throw new Error('Daemon-spawned sessions cannot use local/interactive mode');
     }
+
+    // Set backend for offline warnings (before any API calls)
+    connectionState.setBackend('Claude');
 
     // Create session service
     const api = await ApiClient.create(credentials);
@@ -88,6 +94,51 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         flavor: 'claude'
     };
     const response = await api.getOrCreateSession({ tag: sessionTag, metadata, state });
+
+    // Handle server unreachable case - run Claude locally with hot reconnection
+    // Note: connectionState.notifyOffline() was already called by api.ts with error details
+    if (!response) {
+        let offlineSessionId: string | null = null;
+
+        const reconnection = startOfflineReconnection({
+            serverUrl: configuration.serverUrl,
+            onReconnected: async () => {
+                const resp = await api.getOrCreateSession({ tag: randomUUID(), metadata, state });
+                if (!resp) throw new Error('Server unavailable');
+                const session = api.sessionSyncClient(resp);
+                const scanner = await createSessionScanner({
+                    sessionId: null,
+                    workingDirectory,
+                    onMessage: (msg) => session.sendClaudeSessionMessage(msg)
+                });
+                if (offlineSessionId) scanner.onNewSession(offlineSessionId);
+                return { session, scanner };
+            },
+            onNotify: console.log,
+            onCleanup: () => {
+                // Scanner cleanup handled automatically when process exits
+            }
+        });
+
+        try {
+            await claudeLocal({
+                path: workingDirectory,
+                sessionId: null,
+                onSessionFound: (id) => { offlineSessionId = id; },
+                onThinkingChange: () => {},
+                abort: new AbortController().signal,
+                claudeEnvVars: options.claudeEnvVars,
+                claudeArgs: options.claudeArgs,
+                mcpServers: {},
+                allowedTools: []
+            });
+        } finally {
+            reconnection.cancel();
+            stopCaffeinate();
+        }
+        process.exit(0);
+    }
+
     logger.debug(`Session created: ${response.id}`);
 
     // Always report to daemon if it exists
