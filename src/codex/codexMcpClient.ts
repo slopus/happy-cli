@@ -7,40 +7,242 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { logger } from '@/ui/logger';
 import type { CodexSessionConfig, CodexToolResponse } from './types';
 import { z } from 'zod';
-import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { ElicitRequestParamsSchema, RequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { CodexPermissionHandler } from './utils/permissionHandler';
 import { execSync } from 'child_process';
+import { randomUUID } from 'node:crypto';
 
 const DEFAULT_TIMEOUT = 14 * 24 * 60 * 60 * 1000; // 14 days, which is the half of the maximum possible timeout (~28 days for int32 value in NodeJS)
+
+const ElicitRequestSchemaWithExtras = RequestSchema.extend({
+    method: z.literal('elicitation/create'),
+    params: ElicitRequestParamsSchema.passthrough()
+});
+
+// ============================================================================
+// Codex Elicitation Request Types (from Codex MCP server)
+// Field names are stable since v0.9.0 - all use codex_* prefix
+// ============================================================================
+
+/** Common fields shared by all elicitation requests */
+interface CodexElicitationBase {
+    message: string;
+    codex_elicitation: 'exec-approval' | 'patch-approval';
+    codex_mcp_tool_call_id: string;
+    codex_event_id: string;
+    codex_call_id: string;
+}
+
+/** Exec approval request params (command execution) */
+interface ExecApprovalParams extends CodexElicitationBase {
+    codex_elicitation: 'exec-approval';
+    codex_command: string[];
+    codex_cwd: string;
+    codex_parsed_cmd?: Array<{ cmd: string; args?: string[] }>;  // Added in ~v0.46
+}
+
+/** Patch approval request params (code changes) */
+interface PatchApprovalParams extends CodexElicitationBase {
+    codex_elicitation: 'patch-approval';
+    codex_reason?: string;
+    codex_grant_root?: string;
+    codex_changes: Record<string, unknown>;
+}
+
+type CodexElicitationParams = ExecApprovalParams | PatchApprovalParams;
+
+// ============================================================================
+// Elicitation Response Types
+// ============================================================================
+
+type ElicitationAction = 'accept' | 'decline' | 'cancel';
+
+/**
+ * Codex ReviewDecision::ApprovedExecpolicyAmendment variant
+ *
+ * Rust definition uses:
+ * - #[serde(rename_all = "snake_case")] on enum -> variant name is snake_case
+ * - #[serde(transparent)] on ExecPolicyAmendment -> serializes as array directly
+ *
+ * Result: { "approved_execpolicy_amendment": { "proposed_execpolicy_amendment": ["cmd", "arg1", ...] } }
+ */
+type ExecpolicyAmendmentDecision = {
+    approved_execpolicy_amendment: {
+        proposed_execpolicy_amendment: string[];  // transparent: directly an array, not { command: [...] }
+    };
+};
+/**
+ * Codex ReviewDecision enum - uses #[serde(rename_all = "snake_case")]
+ * See: codex-rs/protocol/src/protocol.rs
+ */
+type ReviewDecision =
+    | 'approved'
+    | 'approved_for_session'
+    | 'denied'
+    | 'abort'
+    | ExecpolicyAmendmentDecision;
+
+/**
+ * Response format changed in v0.77:
+ * - 'decision': v0.9 ~ v0.77 (ReviewDecision only)
+ * - 'both': v0.77+ (action + decision + content)
+ */
+type ElicitationResponseStyle = 'decision' | 'both';
+
+// ============================================================================
+// Version Detection
+// ============================================================================
+
+interface CodexVersionInfo {
+    raw: string | null;
+    parsed: boolean;
+    major: number;
+    minor: number;
+    patch: number;
+    prereleaseTag?: string;
+    prereleaseNum?: number;
+}
+
+type CodexVersionTarget = Pick<
+    CodexVersionInfo,
+    'major' | 'minor' | 'patch' | 'prereleaseTag' | 'prereleaseNum'
+>;
+
+const MCP_SERVER_MIN_VERSION = {
+    major: 0,
+    minor: 43,
+    patch: 0,
+    prereleaseTag: 'alpha',
+    prereleaseNum: 5
+};
+
+// Codex CLI <= 0.77.0 still expects ReviewDecision in exec/patch approvals.
+const ELICITATION_DECISION_MAX_VERSION: CodexVersionTarget = {
+    major: 0,
+    minor: 77,
+    patch: 0
+};
+
+let cachedCodexVersionInfo: CodexVersionInfo | null = null;
+
+function getCodexVersionInfo(): CodexVersionInfo {
+    if (cachedCodexVersionInfo) return cachedCodexVersionInfo;
+
+    try {
+        const raw = execSync('codex --version', { encoding: 'utf8' }).trim();
+        const match = raw.match(/(?:codex(?:-cli)?)\s+v?(\d+)\.(\d+)\.(\d+)(?:-([a-z]+)\.(\d+))?/i)
+            ?? raw.match(/\b(\d+)\.(\d+)\.(\d+)(?:-([a-z]+)\.(\d+))?\b/);
+        if (!match) {
+            cachedCodexVersionInfo = {
+                raw,
+                parsed: false,
+                major: 0,
+                minor: 0,
+                patch: 0
+            };
+            return cachedCodexVersionInfo;
+        }
+
+        const major = Number(match[1]);
+        const minor = Number(match[2]);
+        const patch = Number(match[3]);
+        const prereleaseTag = match[4];
+        const prereleaseNum = match[5] ? Number(match[5]) : undefined;
+
+        cachedCodexVersionInfo = {
+            raw,
+            parsed: true,
+            major,
+            minor,
+            patch,
+            prereleaseTag,
+            prereleaseNum
+        };
+        return cachedCodexVersionInfo;
+    } catch (error) {
+        logger.debug('[CodexMCP] Error detecting codex version:', error);
+        cachedCodexVersionInfo = {
+            raw: null,
+            parsed: false,
+            major: 0,
+            minor: 0,
+            patch: 0
+        };
+        return cachedCodexVersionInfo;
+    }
+}
+
+function compareVersions(info: CodexVersionInfo, target: CodexVersionTarget): number {
+    if (info.major !== target.major) return info.major - target.major;
+    if (info.minor !== target.minor) return info.minor - target.minor;
+    if (info.patch !== target.patch) return info.patch - target.patch;
+
+    const infoTag = info.prereleaseTag;
+    const targetTag = target.prereleaseTag;
+    if (!infoTag && !targetTag) return 0;
+    if (!infoTag && targetTag) return 1;
+    if (infoTag && !targetTag) return -1;
+    if (!infoTag || !targetTag) return 0;
+    if (infoTag !== targetTag) return infoTag.localeCompare(targetTag);
+
+    const infoNum = info.prereleaseNum ?? 0;
+    const targetNum = target.prereleaseNum ?? 0;
+    return infoNum - targetNum;
+}
+
+function isVersionAtLeast(info: CodexVersionInfo, target: CodexVersionTarget): boolean {
+    if (!info.parsed) return false;
+    return compareVersions(info, target) >= 0;
+}
+
+function isVersionAtMost(info: CodexVersionInfo, target: CodexVersionTarget): boolean {
+    if (!info.parsed) return false;
+    return compareVersions(info, target) <= 0;
+}
+
+function getElicitationResponseStyle(info: CodexVersionInfo): ElicitationResponseStyle {
+    const override = process.env.HAPPY_CODEX_ELICITATION_STYLE?.toLowerCase();
+    if (override === 'decision' || override === 'both') {
+        return override;
+    }
+
+    // Default to 'both' if version unknown (safer for newer versions)
+    if (!info.parsed) return 'both';
+    // v0.77 and earlier expect ReviewDecision format
+    return isVersionAtMost(info, ELICITATION_DECISION_MAX_VERSION) ? 'decision' : 'both';
+}
+
+function buildElicitationResponse(
+    style: ElicitationResponseStyle,
+    action: ElicitationAction,
+    decision: ReviewDecision
+): { action: ElicitationAction; decision?: ReviewDecision; content?: Record<string, unknown> } {
+    if (style === 'decision') {
+        // v0.77 and earlier: ReviewDecision format
+        return { action, decision };
+    }
+    // v0.77+: Full elicitation response with action + decision + content
+    return { action, decision, content: {} };
+}
+
+function isExecpolicyAmendmentDecision(
+    decision: ReviewDecision
+): decision is ExecpolicyAmendmentDecision {
+    return typeof decision === 'object'
+        && decision !== null
+        && 'approved_execpolicy_amendment' in decision;
+}
 
 /**
  * Get the correct MCP subcommand based on installed codex version
  * Versions >= 0.43.0-alpha.5 use 'mcp-server', older versions use 'mcp'
  */
 function getCodexMcpCommand(): string {
-    try {
-        const version = execSync('codex --version', { encoding: 'utf8' }).trim();
-        const match = version.match(/codex-cli\s+(\d+\.\d+\.\d+(?:-alpha\.\d+)?)/);
-        if (!match) return 'mcp-server'; // Default to newer command if we can't parse
+    const info = getCodexVersionInfo();
+    if (!info.parsed) return 'mcp-server';
 
-        const versionStr = match[1];
-        const [major, minor, patch] = versionStr.split(/[-.]/).map(Number);
-
-        // Version >= 0.43.0-alpha.5 has mcp-server
-        if (major > 0 || minor > 43) return 'mcp-server';
-        if (minor === 43 && patch === 0) {
-            // Check for alpha version
-            if (versionStr.includes('-alpha.')) {
-                const alphaNum = parseInt(versionStr.split('-alpha.')[1]);
-                return alphaNum >= 5 ? 'mcp-server' : 'mcp';
-            }
-            return 'mcp-server'; // 0.43.0 stable has mcp-server
-        }
-        return 'mcp'; // Older versions use mcp
-    } catch (error) {
-        logger.debug('[CodexMCP] Error detecting codex version, defaulting to mcp-server:', error);
-        return 'mcp-server'; // Default to newer command
-    }
+    // Version >= 0.43.0-alpha.5 has mcp-server
+    return isVersionAtLeast(info, MCP_SERVER_MIN_VERSION) ? 'mcp-server' : 'mcp';
 }
 
 export class CodexMcpClient {
@@ -51,6 +253,8 @@ export class CodexMcpClient {
     private conversationId: string | null = null;
     private handler: ((event: any) => void) | null = null;
     private permissionHandler: CodexPermissionHandler | null = null;
+    /** Cached proposed_execpolicy_amendment from notifications, keyed by call_id */
+    private pendingAmendments = new Map<string, string[]>();
 
     constructor() {
         this.client = new Client(
@@ -64,9 +268,18 @@ export class CodexMcpClient {
                 msg: z.any()
             })
         }).passthrough(), (data) => {
-            const msg = data.params.msg;
+            const msg = data.params.msg as Record<string, unknown> | null;
             this.updateIdentifiersFromEvent(msg);
             this.handler?.(msg);
+
+            // Cache proposed_execpolicy_amendment for later use in elicitation request
+            if (msg?.type === 'exec_approval_request') {
+                const callId = msg.call_id;
+                const amendment = msg.proposed_execpolicy_amendment;
+                if (typeof callId === 'string' && Array.isArray(amendment)) {
+                    this.pendingAmendments.set(callId, amendment.filter((p): p is string => typeof p === 'string'));
+                }
+            }
         });
     }
 
@@ -83,6 +296,9 @@ export class CodexMcpClient {
 
     async connect(): Promise<void> {
         if (this.connected) return;
+
+        const versionInfo = getCodexVersionInfo();
+        logger.debug('[CodexMCP] Detected codex version', versionInfo);
 
         const mcpCommand = getCodexMcpCommand();
         logger.debug(`[CodexMCP] Connecting to Codex MCP server using command: codex ${mcpCommand}`);
@@ -107,58 +323,170 @@ export class CodexMcpClient {
     }
 
     private registerPermissionHandlers(): void {
-        // Register handler for exec command approval requests
+        const versionInfo = getCodexVersionInfo();
+        const responseStyle = getElicitationResponseStyle(versionInfo);
+        logger.debug('[CodexMCP] Elicitation response style', {
+            style: responseStyle,
+            version: versionInfo.raw
+        });
+
         this.client.setRequestHandler(
-            ElicitRequestSchema,
+            ElicitRequestSchemaWithExtras,
             async (request) => {
-                console.log('[CodexMCP] Received elicitation request:', request.params);
+                const params = (request.params ?? {}) as Record<string, unknown>;
+                logger.debugLargeJson('[CodexMCP] Received elicitation request', params);
 
-                // Load params
-                const params = request.params as unknown as {
-                    message: string,
-                    codex_elicitation: string,
-                    codex_mcp_tool_call_id: string,
-                    codex_event_id: string,
-                    codex_call_id: string,
-                    codex_command: string[],
-                    codex_cwd: string
-                }
-                const toolName = 'CodexBash';
+                // Extract fields using stable codex_* field names (since v0.9)
+                const toolCallId = this.extractString(params, 'codex_call_id') ?? randomUUID();
+                const elicitationType = this.extractString(params, 'codex_elicitation');
+                const message = this.extractString(params, 'message') ?? '';
 
-                // If no permission handler set, deny by default
+                const isPatchApproval = elicitationType === 'patch-approval';
+                const toolName = isPatchApproval ? 'CodexPatch' : 'CodexBash';
+
+                // Get and consume cached proposed_execpolicy_amendment from notification
+                const cachedAmendment = this.pendingAmendments.get(toolCallId);
+                this.pendingAmendments.delete(toolCallId);
+
+                // Build tool input based on elicitation type
+                const toolInput = isPatchApproval
+                    ? this.buildPatchToolInput(params, message)
+                    : this.buildExecToolInput(params, cachedAmendment);
+
+                logger.debug('[CodexMCP] Permission request', {
+                    toolCallId,
+                    toolName,
+                    elicitationType
+                });
+
+                // Deny by default if no permission handler
                 if (!this.permissionHandler) {
-                    logger.debug('[CodexMCP] No permission handler set, denying by default');
-                    return {
-                        decision: 'denied' as const,
-                    };
+                    logger.debug('[CodexMCP] No permission handler, denying');
+                    return buildElicitationResponse(responseStyle, 'decline', 'denied');
                 }
 
                 try {
-                    // Request permission through the handler
                     const result = await this.permissionHandler.handleToolCall(
-                        params.codex_call_id,
+                        toolCallId,
                         toolName,
-                        {
-                            command: params.codex_command,
-                            cwd: params.codex_cwd
-                        }
+                        toolInput
                     );
 
-                    logger.debug('[CodexMCP] Permission result:', result);
-                    return {
-                        decision: result.decision
-                    }
+                    const decision = this.mapResultToDecision(result);
+                    const action = this.mapDecisionToAction(decision);
+
+                    logger.debug('[CodexMCP] Sending response', {
+                        toolCallId,
+                        decision,
+                        action,
+                        responseStyle
+                    });
+                    return buildElicitationResponse(responseStyle, action, decision);
                 } catch (error) {
-                    logger.debug('[CodexMCP] Error handling permission request:', error);
-                    return {
-                        decision: 'denied' as const,
-                        reason: error instanceof Error ? error.message : 'Permission request failed'
-                    };
+                    logger.debug('[CodexMCP] Error handling permission:', error);
+                    return buildElicitationResponse(responseStyle, 'decline', 'denied');
                 }
             }
         );
 
         logger.debug('[CodexMCP] Permission handlers registered');
+    }
+
+    /** Extract string field from params */
+    private extractString(params: Record<string, unknown>, key: string): string | undefined {
+        const value = params[key];
+        return typeof value === 'string' && value.length > 0 ? value : undefined;
+    }
+
+    /**
+     * Build tool input for exec approval (command execution)
+     * @param params - Elicitation request params
+     * @param cachedAmendment - Cached proposed_execpolicy_amendment from notification
+     */
+    private buildExecToolInput(
+        params: Record<string, unknown>,
+        cachedAmendment?: string[]
+    ): {
+        command: string[];
+        cwd?: string;
+        parsed_cmd?: unknown[];
+        reason?: string;
+        proposedExecpolicyAmendment?: string[];
+    } {
+        // codex_command is the full shell command (e.g., ["/bin/zsh", "-lc", "yarn dev"])
+        const command = Array.isArray(params.codex_command)
+            ? params.codex_command.filter((p): p is string => typeof p === 'string')
+            : [];
+        const cwd = this.extractString(params, 'codex_cwd');
+        const parsed_cmd = Array.isArray(params.codex_parsed_cmd)
+            ? params.codex_parsed_cmd
+            : undefined;
+        const reason = this.extractString(params, 'codex_reason');
+
+        // Use cached amendment from notification (e.g., ["yarn", "dev"])
+        // This is the correct user-friendly command, not the full shell wrapper
+        const proposedExecpolicyAmendment = cachedAmendment;
+
+        return { command, cwd, parsed_cmd, reason, proposedExecpolicyAmendment };
+    }
+
+    /** Build tool input for patch approval (code changes) */
+    private buildPatchToolInput(params: Record<string, unknown>, message: string): {
+        message: string;
+        reason?: string;
+        grantRoot?: string;
+        changes?: unknown;
+    } {
+        const reason = this.extractString(params, 'codex_reason');
+        const grantRoot = this.extractString(params, 'codex_grant_root');
+        const changes = typeof params.codex_changes === 'object' && params.codex_changes !== null
+            ? params.codex_changes
+            : undefined;
+
+        return { message, reason, grantRoot, changes };
+    }
+
+    /**
+     * Map permission handler result to Codex ReviewDecision
+     * Both use snake_case (Codex uses #[serde(rename_all = "snake_case")])
+     * ExecPolicyAmendment uses #[serde(transparent)] so it's just an array
+     */
+    private mapResultToDecision(result: {
+        decision: 'approved' | 'approved_for_session' | 'approved_execpolicy_amendment' | 'denied' | 'abort';
+        execPolicyAmendment?: { command: string[] };
+    }): ReviewDecision {
+        switch (result.decision) {
+            case 'approved_execpolicy_amendment':
+                if (result.execPolicyAmendment?.command?.length) {
+                    return {
+                        approved_execpolicy_amendment: {
+                            // transparent: directly the array, not { command: [...] }
+                            proposed_execpolicy_amendment: result.execPolicyAmendment.command
+                        }
+                    };
+                }
+                logger.debug('[CodexMCP] Missing execpolicy amendment, falling back to approved');
+                return 'approved';
+            case 'approved':
+                return 'approved';
+            case 'approved_for_session':
+                return 'approved_for_session';
+            case 'denied':
+                return 'denied';
+            case 'abort':
+                return 'abort';
+        }
+    }
+
+    /** Map ReviewDecision to ElicitationAction */
+    private mapDecisionToAction(decision: ReviewDecision): ElicitationAction {
+        if (decision === 'approved' || decision === 'approved_for_session' || isExecpolicyAmendmentDecision(decision)) {
+            return 'accept';
+        }
+        if (decision === 'abort') {
+            return 'cancel';
+        }
+        return 'decline';
     }
 
     async startSession(config: CodexSessionConfig, options?: { signal?: AbortSignal }): Promise<CodexToolResponse> {
@@ -196,7 +524,7 @@ export class CodexMcpClient {
             logger.debug('[CodexMCP] conversationId missing, defaulting to sessionId:', this.conversationId);
         }
 
-        const args = { sessionId: this.sessionId, conversationId: this.conversationId, prompt };
+        const args = { conversationId: this.conversationId, prompt };
         logger.debug('[CodexMCP] Continuing Codex session:', args);
 
         const response = await this.client.callTool({

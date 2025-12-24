@@ -9,10 +9,22 @@ import { logger } from "@/ui/logger";
 import { ApiSessionClient } from "@/api/apiSession";
 import { AgentState } from "@/api/types";
 
+type PermissionDecision =
+    | 'approved'
+    | 'approved_for_session'
+    | 'approved_execpolicy_amendment'
+    | 'denied'
+    | 'abort';
+
+interface ExecPolicyAmendment {
+    command: string[];
+}
+
 interface PermissionResponse {
     id: string;
     approved: boolean;
-    decision?: 'approved' | 'approved_for_session' | 'denied' | 'abort';
+    decision?: PermissionDecision;
+    execPolicyAmendment?: ExecPolicyAmendment;
 }
 
 interface PendingRequest {
@@ -23,7 +35,8 @@ interface PendingRequest {
 }
 
 interface PermissionResult {
-    decision: 'approved' | 'approved_for_session' | 'denied' | 'abort';
+    decision: PermissionDecision;
+    execPolicyAmendment?: ExecPolicyAmendment;
 }
 
 export class CodexPermissionHandler {
@@ -92,21 +105,42 @@ export class CodexPermissionHandler {
         this.session.rpcHandlerManager.registerHandler<PermissionResponse, void>(
             'permission',
             async (response) => {
-                // console.log(`[Codex] Permission response received:`, response);
+                console.log(`[Codex] Permission response received:`, response);
 
                 const pending = this.pendingRequests.get(response.id);
                 if (!pending) {
-                    logger.debug('[Codex] Permission request not found or already resolved');
+                    logger.debug('[Codex] Permission request not found or already resolved', {
+                        responseId: response.id,
+                        pendingIds: Array.from(this.pendingRequests.keys())
+                    });
                     return;
                 }
 
                 // Remove from pending
                 this.pendingRequests.delete(response.id);
 
-                // Resolve the permission request
-                const result: PermissionResult = response.approved
-                    ? { decision: response.decision === 'approved_for_session' ? 'approved_for_session' : 'approved' }
-                    : { decision: response.decision === 'denied' ? 'denied' : 'abort' };
+                // Determine the permission decision
+                let decision: PermissionDecision;
+                let result: PermissionResult;
+
+                if (response.approved) {
+                    const wantsExecpolicyAmendment = response.decision === 'approved_execpolicy_amendment'
+                        && Boolean(response.execPolicyAmendment?.command?.length);
+
+                    if (wantsExecpolicyAmendment) {
+                        decision = 'approved_execpolicy_amendment';
+                        result = { decision, execPolicyAmendment: response.execPolicyAmendment };
+                    } else if (response.decision === 'approved_for_session') {
+                        decision = 'approved_for_session';
+                        result = { decision };
+                    } else {
+                        decision = 'approved';
+                        result = { decision };
+                    }
+                } else {
+                    decision = response.decision === 'denied' ? 'denied' : 'abort';
+                    result = { decision };
+                }
 
                 pending.resolve(result);
 
@@ -136,7 +170,10 @@ export class CodexPermissionHandler {
                     return res;
                 });
 
-                logger.debug(`[Codex] Permission ${response.approved ? 'approved' : 'denied'} for ${pending.toolName}`);
+                logger.debug(`[Codex] Permission ${response.approved ? 'approved' : 'denied'} for ${pending.toolName}`, {
+                    toolCallId: response.id,
+                    decision: result.decision
+                });
             }
         );
     }

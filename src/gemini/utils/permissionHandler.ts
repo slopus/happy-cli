@@ -13,7 +13,7 @@ import type { PermissionMode } from '@/gemini/types';
 interface PermissionResponse {
     id: string;
     approved: boolean;
-    decision?: 'approved' | 'approved_for_session' | 'denied' | 'abort';
+    decision?: 'approved' | 'approved_for_session' | 'approved_execpolicy_amendment' | 'denied' | 'abort';
 }
 
 interface PendingRequest {
@@ -24,7 +24,7 @@ interface PendingRequest {
 }
 
 interface PermissionResult {
-    decision: 'approved' | 'approved_for_session' | 'denied' | 'abort';
+    decision: 'approved' | 'approved_for_session' | 'approved_execpolicy_amendment' | 'denied' | 'abort';
 }
 
 export class GeminiPermissionHandler {
@@ -240,4 +240,3 @@ export class GeminiPermissionHandler {
         logger.debug('[Gemini] Permission handler reset');
     }
 }
-
