@@ -158,24 +158,16 @@ export class SDKToLogConverter {
                     this.updateSessionId(systemMsg.session_id)
                 }
 
-                // Only convert system messages that are displayed in terminal
-                // 'init' subtype is displayed, others are background-only
-                if (systemMsg.subtype === 'init') {
-                    // System init messages are displayed in terminal, so convert and send
-                    logMessage = {
-                        ...baseFields,
-                        type: 'system',
-                        subtype: systemMsg.subtype,
-                        model: systemMsg.model,
-                        tools: systemMsg.tools,
-                        // Include all other fields
-                        ...(systemMsg as any)
-                    }
-                } else {
-                    // Other system messages (token limits, compaction warnings, etc.) are not displayed
-                    // in terminal, so don't convert them - they're background-only
-                    // Return null so they're not sent to mobile
-                    return null
+                // Convert all system messages - including important ones like token limits and compaction warnings
+                // These are important notifications that should be sent to mobile even if not displayed in terminal UI
+                logMessage = {
+                    ...baseFields,
+                    type: 'system',
+                    subtype: systemMsg.subtype,
+                    model: systemMsg.model,
+                    tools: systemMsg.tools,
+                    // Include all other fields (message, text, content, error, etc.)
+                    ...(systemMsg as any)
                 }
                 break
             }
