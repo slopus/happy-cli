@@ -69,7 +69,15 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
             await abort();
         }
 
-        // When to abort
+        // Check if there are messages in the queue from mobile BEFORE setting up handlers
+        // This prevents immediate switching if messages arrived during handoff
+        // If queue has messages, mobile wants control - switch to remote mode
+        if (session.queue.size() > 0) {
+            logger.debug('[local]: Queue has messages from mobile, switching to remote mode');
+            return 'switch';
+        }
+
+        // When to abort - set up handlers AFTER checking queue to avoid race conditions
         session.client.rpcHandlerManager.registerHandler('abort', doAbort); // Abort current process, clean queue and switch to remote mode
         session.client.rpcHandlerManager.registerHandler('switch', doSwitch); // When user wants to switch to remote mode
         session.queue.setOnMessage((message: string, mode) => {
@@ -77,14 +85,6 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
             // This allows mobile to take control when it sends a message
             doSwitch();
         }); // When any message is received, abort current process, clean queue and switch to remote mode
-
-        // Check if there are messages in the queue from mobile
-        // If so, switch to remote mode to let mobile handle them
-        // But only if we're not already in a clean state (e.g., just switched from remote)
-        if (session.queue.size() > 0) {
-            logger.debug('[local]: Queue has messages from mobile, switching to remote mode');
-            return 'switch';
-        }
 
         // Handle session start
         const handleSessionStart = (sessionId: string) => {

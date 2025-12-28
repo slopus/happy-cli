@@ -89,10 +89,11 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
             exitReason = 'switch';
         }
         
-        // Don't clear the queue - messages should continue to flow to mobile
-        // The queue will be handled by local mode's session scanner
-        // We just need to stop remote mode from processing it
-        logger.debug('[remote]: Switching to local mode - terminal will regain control');
+        // Clear the queue when switching to local mode to prevent immediate switch back
+        // Stale messages in the queue would cause local mode to immediately switch back to remote
+        // Messages will continue to flow to mobile via the session scanner in local mode
+        logger.debug('[remote]: Clearing queue and switching to local mode - terminal will regain control');
+        session.queue.reset();
         
         await abort();
     }
@@ -481,10 +482,19 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
         // Local mode will set its own handler when it starts
         session.queue.setOnMessage(null);
 
-        // Reset Terminal
-        process.stdin.off('data', abort);
-        if (process.stdin.isTTY) {
-            process.stdin.setRawMode(false);
+        // Reset Terminal - restore normal stdin handling
+        // This is critical to prevent EIO errors during handoff
+        try {
+            process.stdin.off('data', abort);
+            if (process.stdin.isTTY) {
+                process.stdin.setRawMode(false);
+            }
+            // Resume stdin if it was paused to prevent EIO errors
+            if (process.stdin.isPaused()) {
+                process.stdin.resume();
+            }
+        } catch (error) {
+            logger.debug('[remote]: Error resetting stdin (may be expected during handoff):', error);
         }
         if (inkInstance) {
             inkInstance.unmount();
