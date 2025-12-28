@@ -208,30 +208,8 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
             }
         }
 
-        // Handle system messages specially - send important ones as session events
-        // This ensures mobile app receives critical information like token limits, compaction warnings, etc.
-        if (message.type === 'system') {
-            const systemMsg = message as SDKSystemMessage;
-            
-            // Send system messages with important information (token limits, compaction warnings, etc.)
-            // as session events so mobile app can display them prominently
-            // Skip 'init' subtype as it's just session initialization
-            if (systemMsg.subtype && systemMsg.subtype !== 'init') {
-                // Extract message text from system message - check various possible fields
-                const systemMessageText = (systemMsg as any).message || 
-                                        (systemMsg as any).text || 
-                                        (systemMsg as any).content ||
-                                        (systemMsg as any).error ||
-                                        `System notification: ${systemMsg.subtype}`;
-                
-                logger.debug(`[remote]: Sending system message to mobile (subtype: ${systemMsg.subtype}): ${systemMessageText}`);
-                session.client.sendSessionEvent({ 
-                    type: 'message', 
-                    message: systemMessageText 
-                });
-            }
-        }
-
+        // Convert SDK message to log format - this includes all messages that are displayed in terminal
+        // Only messages that appear in terminal (via formatClaudeMessageForInk) will be converted and sent
         const logMessage = sdkToLogConverter.convert(msg);
         if (logMessage) {
             // Add permissions field to tool result content

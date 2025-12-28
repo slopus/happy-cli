@@ -158,24 +158,47 @@ export class SDKToLogConverter {
                     this.updateSessionId(systemMsg.session_id)
                 }
 
-                // System messages are typically not sent to logs
-                // but we can convert them if needed
-                logMessage = {
-                    ...baseFields,
-                    type: 'system',
-                    subtype: systemMsg.subtype,
-                    model: systemMsg.model,
-                    tools: systemMsg.tools,
-                    // Include all other fields
-                    ...(systemMsg as any)
+                // Only convert system messages that are displayed in terminal
+                // 'init' subtype is displayed, others are background-only
+                if (systemMsg.subtype === 'init') {
+                    // System init messages are displayed in terminal, so convert and send
+                    logMessage = {
+                        ...baseFields,
+                        type: 'system',
+                        subtype: systemMsg.subtype,
+                        model: systemMsg.model,
+                        tools: systemMsg.tools,
+                        // Include all other fields
+                        ...(systemMsg as any)
+                    }
+                } else {
+                    // Other system messages (token limits, compaction warnings, etc.) are not displayed
+                    // in terminal, so don't convert them - they're background-only
+                    // Return null so they're not sent to mobile
+                    return null
                 }
                 break
             }
 
             case 'result': {
-                // Result messages are not converted to log messages
-                // They're SDK-specific messages that indicate session completion
-                // Not part of the actual conversation log
+                // Result messages ARE displayed in terminal (via formatClaudeMessageForInk)
+                // So we should convert and send them to mobile
+                const resultMsg = sdkMessage as SDKResultMessage
+                logMessage = {
+                    ...baseFields,
+                    type: 'result',
+                    subtype: resultMsg.subtype,
+                    result: resultMsg.result,
+                    num_turns: resultMsg.num_turns,
+                    usage: resultMsg.usage,
+                    total_cost_usd: resultMsg.total_cost_usd,
+                    duration_ms: resultMsg.duration_ms,
+                    duration_api_ms: resultMsg.duration_api_ms,
+                    is_error: resultMsg.is_error,
+                    session_id: resultMsg.session_id,
+                    // Include all other fields
+                    ...(resultMsg as any)
+                }
                 break
             }
 
