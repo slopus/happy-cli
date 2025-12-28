@@ -38,10 +38,12 @@ export async function claudeRemote(opts: {
     onSessionReset?: () => void
 }) {
 
-    // Check if session is valid
+    // Use session ID if provided - don't check file existence as it might not exist yet
+    // The session ID is the source of truth, and the file will be created when Claude starts
     let startFrom = opts.sessionId;
+    // Only validate if session file exists for logging purposes, but still use the session ID
     if (opts.sessionId && !claudeCheckSession(opts.sessionId, opts.path)) {
-        startFrom = null;
+        logger.debug(`[claudeRemote] Session file not found for ${opts.sessionId}, but will use session ID anyway (file may be created soon)`);
     }
     
     // Extract --resume from claudeArgs if present (for first spawn)
