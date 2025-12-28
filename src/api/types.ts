@@ -312,7 +312,9 @@ export type Metadata = {
   lifecycleStateSince?: number,
   archivedBy?: string,
   archiveReason?: string,
-  flavor?: string
+  flavor?: string,
+  // Permission mode - sent to mobile so it respects the repo decision
+  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan'
 };
 
 export type AgentState = {

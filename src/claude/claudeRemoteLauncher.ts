@@ -6,7 +6,7 @@ import React from "react";
 import { claudeRemote } from "./claudeRemote";
 import { PermissionHandler } from "./utils/permissionHandler";
 import { Future } from "@/utils/future";
-import { SDKAssistantMessage, SDKMessage, SDKUserMessage } from "./sdk";
+import { SDKAssistantMessage, SDKMessage, SDKSystemMessage, SDKUserMessage } from "./sdk";
 import { formatClaudeMessageForInk } from "@/ui/messageFormatterInk";
 import { logger } from "@/ui/logger";
 import { SDKToLogConverter } from "./utils/sdkToLogConverter";
@@ -88,6 +88,12 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
         if (!exitReason) {
             exitReason = 'switch';
         }
+        
+        // Don't clear the queue - messages should continue to flow to mobile
+        // The queue will be handled by local mode's session scanner
+        // We just need to stop remote mode from processing it
+        logger.debug('[remote]: Switching to local mode - terminal will regain control');
+        
         await abort();
     }
 
@@ -198,6 +204,30 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                         })
                     }
                 }
+            }
+        }
+
+        // Handle system messages specially - send important ones as session events
+        // This ensures mobile app receives critical information like token limits, compaction warnings, etc.
+        if (message.type === 'system') {
+            const systemMsg = message as SDKSystemMessage;
+            
+            // Send system messages with important information (token limits, compaction warnings, etc.)
+            // as session events so mobile app can display them prominently
+            // Skip 'init' subtype as it's just session initialization
+            if (systemMsg.subtype && systemMsg.subtype !== 'init') {
+                // Extract message text from system message - check various possible fields
+                const systemMessageText = (systemMsg as any).message || 
+                                        (systemMsg as any).text || 
+                                        (systemMsg as any).content ||
+                                        (systemMsg as any).error ||
+                                        `System notification: ${systemMsg.subtype}`;
+                
+                logger.debug(`[remote]: Sending system message to mobile (subtype: ${systemMsg.subtype}): ${systemMessageText}`);
+                session.client.sendSessionEvent({ 
+                    type: 'message', 
+                    message: systemMessageText 
+                });
             }
         }
 
@@ -439,6 +469,17 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
 
         // Clean up permission handler
         permissionHandler.reset();
+
+        // Unregister RPC handlers to prevent reconnection attempts
+        // This is critical for clean handoff from remote to local
+        // Terminal needs to regain full control like it was before mobile took over
+        logger.debug('[remote]: Unregistering RPC handlers - terminal regaining control');
+        session.client.rpcHandlerManager.registerHandler('abort', async () => { });
+        session.client.rpcHandlerManager.registerHandler('switch', async () => { });
+        
+        // Clear queue's onMessage handler to prevent unwanted switches
+        // Local mode will set its own handler when it starts
+        session.queue.setOnMessage(null);
 
         // Reset Terminal
         process.stdin.off('data', abort);

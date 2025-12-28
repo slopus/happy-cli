@@ -19,6 +19,9 @@ interface Settings {
   machineId?: string
   machineIdConfirmedByServer?: boolean
   daemonAutoStartWhenRunningHappy?: boolean
+  // Permission mode to use by default for Claude sessions
+  // Persists across sessions so the repo decision is respected
+  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan'
 }
 
 const defaultSettings: Settings = {

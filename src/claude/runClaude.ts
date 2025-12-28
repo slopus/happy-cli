@@ -24,6 +24,7 @@ import { registerKillSessionHandler } from './registerKillSessionHandler';
 import { projectPath } from '../projectPath';
 import { resolve } from 'node:path';
 import { Session } from './session';
+import { updateSettings } from '@/persistence';
 
 export interface StartOptions {
     model?: string
@@ -75,6 +76,17 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         metadata: initialMachineMetadata
     });
 
+    // Load permission mode from settings if not provided in options
+    // This allows the permission mode to persist across sessions
+    let initialPermissionMode = options.permissionMode;
+    if (!initialPermissionMode) {
+        const savedPermissionMode = settings?.permissionMode;
+        if (savedPermissionMode && ['default', 'acceptEdits', 'bypassPermissions', 'plan'].includes(savedPermissionMode)) {
+            initialPermissionMode = savedPermissionMode as PermissionMode;
+            logger.debug(`[START] Loaded permission mode from settings: ${initialPermissionMode}`);
+        }
+    }
+    
     let metadata: Metadata = {
         path: workingDirectory,
         host: os.hostname(),
@@ -91,7 +103,10 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         // Initialize lifecycle state
         lifecycleState: 'running',
         lifecycleStateSince: Date.now(),
-        flavor: 'claude'
+        flavor: 'claude',
+        // Include permission mode in metadata so mobile client knows what mode is active
+        // Only include if set to avoid sending undefined (backward compatibility)
+        ...(initialPermissionMode && { permissionMode: initialPermissionMode })
     };
     const response = await api.getOrCreateSession({ tag: sessionTag, metadata, state });
     logger.debug(`Session created: ${response.id}`);
@@ -186,7 +201,8 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     }));
 
     // Forward messages to the queue
-    let currentPermissionMode = options.permissionMode;
+    // Use the initialPermissionMode that was loaded earlier (from settings or options)
+    let currentPermissionMode = initialPermissionMode;
     let currentModel = options.model; // Track current model state
     let currentFallbackModel: string | undefined = undefined; // Track current fallback model
     let currentCustomSystemPrompt: string | undefined = undefined; // Track current custom system prompt
@@ -203,6 +219,22 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                 messagePermissionMode = message.meta.permissionMode as PermissionMode;
                 currentPermissionMode = messagePermissionMode;
                 logger.debug(`[loop] Permission mode updated from user message to: ${currentPermissionMode}`);
+                
+                // Persist permission mode to settings so it's remembered across sessions
+                // This allows the repo decision to persist
+                await updateSettings((currentSettings) => ({
+                    ...currentSettings,
+                    permissionMode: currentPermissionMode
+                }));
+                logger.debug(`[loop] Saved permission mode to settings: ${currentPermissionMode}`);
+                
+                // Update session metadata so mobile client knows the current permission mode
+                // Only include if set to avoid sending undefined (backward compatibility)
+                session.updateMetadata((metadata) => ({
+                    ...metadata,
+                    ...(currentPermissionMode && { permissionMode: currentPermissionMode })
+                }));
+                logger.debug(`[loop] Updated session metadata with permission mode: ${currentPermissionMode}`);
 
             } else {
                 logger.debug(`[loop] Invalid permission mode received: ${message.meta.permissionMode}`);
@@ -380,7 +412,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     await loop({
         path: workingDirectory,
         model: options.model,
-        permissionMode: options.permissionMode,
+        permissionMode: initialPermissionMode, // Use the loaded permission mode
         startingMode: options.startingMode,
         messageQueue,
         api,
