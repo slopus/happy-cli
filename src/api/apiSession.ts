@@ -226,24 +226,157 @@ export class ApiSessionClient extends EventEmitter {
             role: 'agent',
             content: {
                 type: 'codex',
-                data: body  // This wraps the entire Claude message
+                data: body  // This wraps the entire Codex message
             },
             meta: {
                 sentFrom: 'cli'
             }
         };
         const encrypted = encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, content));
-        
+
         // Check if socket is connected before sending
         if (!this.socket.connected) {
             logger.debug('[API] Socket not connected, cannot send message. Message will be lost:', { type: body.type });
             // TODO: Consider implementing message queue or HTTP fallback for reliability
         }
-        
+
         this.socket.emit('message', {
             sid: this.sessionId,
             message: encrypted
         });
+    }
+
+    /**
+     * Send Gemini message to mobile client
+     * Uses dedicated 'gemini' type instead of 'codex' for proper ACP alignment
+     *
+     * Configuration: GEMINI_DUAL_FORMAT
+     * - 'new': Send only gemini format
+     * - 'old': Send only legacy codex format (for rollback)
+     * - 'both': Send both formats for backward compatibility (default)
+     */
+    sendGeminiMessage(body: any) {
+        const dualFormatMode = process.env.GEMINI_DUAL_FORMAT || 'both';
+
+        // Check if socket is connected before sending
+        if (!this.socket.connected) {
+            logger.debug('[API] Socket not connected, cannot send Gemini message. Message will be lost:', { type: body.type });
+            return;
+        }
+
+        // Send new gemini format
+        if (dualFormatMode === 'new' || dualFormatMode === 'both') {
+            let geminiContent = {
+                role: 'agent',
+                content: {
+                    type: 'gemini',  // Dedicated Gemini type
+                    data: body
+                },
+                meta: {
+                    sentFrom: 'cli',
+                    format: 'gemini'  // Marker for debugging
+                }
+            };
+            const geminiEncrypted = encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, geminiContent));
+
+            this.socket.emit('message', {
+                sid: this.sessionId,
+                message: geminiEncrypted
+            });
+
+            if (dualFormatMode === 'new') {
+                logger.debug('[API] Sent Gemini message (new format only):', { type: body.type });
+            }
+        }
+
+        // Send old codex format for backward compatibility
+        if (dualFormatMode === 'old' || dualFormatMode === 'both') {
+            // Convert new format to old codex format
+            let codexBody = this.convertGeminiToCodex(body);
+            if (codexBody) {
+                let codexContent = {
+                    role: 'agent',
+                    content: {
+                        type: 'codex',
+                        data: codexBody
+                    },
+                    meta: {
+                        sentFrom: 'cli',
+                        format: 'codex-compat'  // Marker for debugging
+                    }
+                };
+                const codexEncrypted = encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, codexContent));
+
+                this.socket.emit('message', {
+                    sid: this.sessionId,
+                    message: codexEncrypted
+                });
+
+                if (dualFormatMode === 'both') {
+                    logger.debug('[API] Sent Gemini message (dual format - new + old):', { type: body.type });
+                }
+            }
+        }
+    }
+
+    /**
+     * Convert new Gemini message format to old Codex format for backward compatibility
+     */
+    private convertGeminiToCodex(geminiBody: any): any {
+        const type = geminiBody.type;
+
+        switch (type) {
+            case 'model-output':
+                return {
+                    type: 'message',
+                    message: geminiBody.textDelta || '',
+                    id: geminiBody.id
+                };
+
+            case 'thinking':
+                return {
+                    type: 'reasoning',
+                    message: geminiBody.text,
+                    id: geminiBody.id
+                };
+
+            case 'message':
+                return {
+                    type: 'message',
+                    message: geminiBody.message,
+                    id: geminiBody.id
+                };
+
+            case 'tool-call':
+                return {
+                    type: 'tool-call',
+                    callId: geminiBody.callId,
+                    name: geminiBody.toolName,
+                    input: geminiBody.args,
+                    id: geminiBody.id
+                };
+
+            case 'tool-result':
+                return {
+                    type: 'tool-call-result',
+                    callId: geminiBody.callId,
+                    output: geminiBody.result,
+                    id: geminiBody.id
+                };
+
+            case 'status':
+            case 'token-count':
+            case 'file-edit':
+            case 'terminal-output':
+            case 'permission-request':
+                // These don't exist in old format, skip
+                logger.debug('[API] Skipping Gemini message type in codex conversion:', type);
+                return null;
+
+            default:
+                logger.debug('[API] Unknown Gemini message type for codex conversion:', type);
+                return null;
+        }
     }
 
     /**

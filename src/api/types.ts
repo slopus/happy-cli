@@ -271,12 +271,111 @@ export const UserMessageSchema = z.object({
 
 export type UserMessage = z.infer<typeof UserMessageSchema>
 
+/**
+ * Gemini message data schema - aligned with ACP protocol
+ * Used for dedicated Gemini message type (separate from Codex)
+ */
+export const GeminiMessageDataSchema = z.discriminatedUnion('type', [
+  // Text output from model
+  z.object({
+    type: z.literal('model-output'),
+    textDelta: z.string().optional(),
+    id: z.string()
+  }),
+
+  // Tool call
+  z.object({
+    type: z.literal('tool-call'),
+    toolName: z.string(),
+    args: z.any(),
+    callId: z.string(),
+    id: z.string()
+  }),
+
+  // Tool result
+  z.object({
+    type: z.literal('tool-result'),
+    toolName: z.string(),
+    result: z.any(),
+    callId: z.string(),
+    isError: z.boolean().optional(),
+    id: z.string()
+  }),
+
+  // Status update
+  z.object({
+    type: z.literal('status'),
+    status: z.enum(['starting', 'running', 'idle', 'stopped', 'error']),
+    id: z.string()
+  }),
+
+  // Token usage
+  z.object({
+    type: z.literal('token-count'),
+    inputTokens: z.number(),
+    outputTokens: z.number(),
+    totalTokens: z.number().optional(),
+    id: z.string()
+  }),
+
+  // Thinking/reasoning
+  z.object({
+    type: z.literal('thinking'),
+    text: z.string(),
+    id: z.string()
+  }),
+
+  // File edit
+  z.object({
+    type: z.literal('file-edit'),
+    description: z.string(),
+    diff: z.string(),
+    path: z.string().optional(),
+    id: z.string()
+  }),
+
+  // Terminal output
+  z.object({
+    type: z.literal('terminal-output'),
+    data: z.string(),
+    id: z.string()
+  }),
+
+  // Permission request
+  z.object({
+    type: z.literal('permission-request'),
+    permissionId: z.string(),
+    reason: z.string(),
+    payload: z.any().optional(),
+    id: z.string()
+  }),
+
+  // Generic message
+  z.object({
+    type: z.literal('message'),
+    message: z.string(),
+    id: z.string()
+  })
+]);
+
+export type GeminiMessageData = z.infer<typeof GeminiMessageDataSchema>
+
 export const AgentMessageSchema = z.object({
   role: z.literal('agent'),
-  content: z.object({
-    type: z.literal('output'),
-    data: z.any()
-  }),
+  content: z.discriminatedUnion('type', [
+    z.object({
+      type: z.literal('output'),
+      data: z.any()  // Claude messages
+    }),
+    z.object({
+      type: z.literal('codex'),
+      data: z.any()  // Codex/OpenAI messages
+    }),
+    z.object({
+      type: z.literal('gemini'),  // Gemini messages
+      data: GeminiMessageDataSchema
+    })
+  ]),
   meta: MessageMetaSchema.optional()
 })
 

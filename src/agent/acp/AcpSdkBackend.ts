@@ -652,6 +652,9 @@ export class AcpSdkBackend implements AgentBackend {
       this.acpSessionId = sessionResponse.sessionId;
       logger.debug(`[AcpSdkBackend] Session created: ${this.acpSessionId}`);
 
+      // Emit session-created event so the launcher can track the session ID
+      this.emit({ type: 'event', name: 'session-created', payload: { sessionId: this.acpSessionId } });
+
       this.emit({ type: 'status', status: 'idle' });
 
       // Send initial prompt if provided

@@ -14,12 +14,13 @@ interface GeminiDisplayProps {
   logPath?: string;
   currentModel?: string;
   onExit?: () => void;
+  onSwitchToLocal?: () => void;
 }
 
-export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, logPath, currentModel, onExit }) => {
+export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, logPath, currentModel, onExit, onSwitchToLocal }) => {
   const [messages, setMessages] = useState<BufferedMessage[]>([]);
-  const [confirmationMode, setConfirmationMode] = useState<boolean>(false);
-  const [actionInProgress, setActionInProgress] = useState<boolean>(false);
+  const [confirmationMode, setConfirmationMode] = useState<'exit' | 'switch' | null>(null);
+  const [actionInProgress, setActionInProgress] = useState<'exiting' | 'switching' | null>(null);
   const [model, setModel] = useState<string | undefined>(currentModel);
   const confirmationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const { stdout } = useStdout();
@@ -68,15 +69,15 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
   }, [messageBuffer]);
 
   const resetConfirmation = useCallback(() => {
-    setConfirmationMode(false);
+    setConfirmationMode(null);
     if (confirmationTimeoutRef.current) {
       clearTimeout(confirmationTimeoutRef.current);
       confirmationTimeoutRef.current = null;
     }
   }, []);
 
-  const setConfirmationWithTimeout = useCallback(() => {
-    setConfirmationMode(true);
+  const setConfirmationWithTimeout = useCallback((mode: 'exit' | 'switch') => {
+    setConfirmationMode(mode);
     if (confirmationTimeoutRef.current) {
       clearTimeout(confirmationTimeoutRef.current);
     }
@@ -86,19 +87,45 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
   }, [resetConfirmation]);
 
   useInput(useCallback(async (input, key) => {
-    if (actionInProgress) return;
+    // Debug: Log every key press to verify useInput is working
+    console.error(`[GeminiDisplay] useInput fired: input="${input}", key=${JSON.stringify(key)}, confirmationMode=${confirmationMode}, actionInProgress=${actionInProgress}`);
+
+    if (actionInProgress) {
+      console.error(`[GeminiDisplay] Ignoring input - action already in progress: ${actionInProgress}`);
+      return;
+    }
 
     // Handle Ctrl-C
     if (key.ctrl && input === 'c') {
-      if (confirmationMode) {
+      if (confirmationMode === 'exit') {
         // Second Ctrl-C, exit
         resetConfirmation();
-        setActionInProgress(true);
+        setActionInProgress('exiting');
         await new Promise(resolve => setTimeout(resolve, 100));
-        onExit?.();
+        try {
+          await onExit?.();
+          console.error(`[GeminiDisplay] onExit callback completed successfully`);
+        } catch (error) {
+          console.error(`[GeminiDisplay] onExit callback threw error:`, error);
+        }
       } else {
         // First Ctrl-C, show confirmation
-        setConfirmationWithTimeout();
+        setConfirmationWithTimeout('exit');
+      }
+      return;
+    }
+
+    // Handle double space for mode switching
+    if (input === ' ') {
+      if (confirmationMode === 'switch') {
+        // Second space, switch to local
+        resetConfirmation();
+        setActionInProgress('switching');
+        await new Promise(resolve => setTimeout(resolve, 100));
+        onSwitchToLocal?.();
+      } else {
+        // First space, show confirmation
+        setConfirmationWithTimeout('switch');
       }
       return;
     }
@@ -107,7 +134,7 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
     if (confirmationMode) {
       resetConfirmation();
     }
-  }, [confirmationMode, actionInProgress, onExit, setConfirmationWithTimeout, resetConfirmation]));
+  }, [confirmationMode, actionInProgress, onExit, onSwitchToLocal, setConfirmationWithTimeout, resetConfirmation]));
 
   const getMessageColor = (type: BufferedMessage['type']): string => {
     switch (type) {
@@ -147,7 +174,7 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
         overflow="hidden"
       >
         <Box flexDirection="column" marginBottom={1}>
-          <Text color="cyan" bold>✨ Gemini Agent Messages</Text>
+          <Text color="cyan" bold>📡 Remote Mode - Gemini Messages</Text>
           <Text color="gray" dimColor>{'─'.repeat(Math.min(terminalWidth - 4, 60))}</Text>
         </Box>
 
@@ -200,18 +227,26 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
         flexDirection="column"
       >
         <Box flexDirection="column" alignItems="center">
-          {actionInProgress ? (
+          {actionInProgress === 'exiting' ? (
             <Text color="gray" bold>
               Exiting agent...
             </Text>
-          ) : confirmationMode ? (
+          ) : actionInProgress === 'switching' ? (
+            <Text color="gray" bold>
+              Switching to local mode...
+            </Text>
+          ) : confirmationMode === 'exit' ? (
             <Text color="red" bold>
               ⚠️  Press Ctrl-C again to exit the agent
+            </Text>
+          ) : confirmationMode === 'switch' ? (
+            <Text color="yellow" bold>
+              ⏸️  Press space again to switch to local mode
             </Text>
           ) : (
             <>
               <Text color="cyan" bold>
-                ✨ Gemini Agent Running • Ctrl-C to exit
+                📱 Press space to switch to local mode • Ctrl-C to exit
               </Text>
               {model && (
                 <Text color="gray" dimColor>
