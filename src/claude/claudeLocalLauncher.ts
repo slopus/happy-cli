@@ -3,6 +3,7 @@ import { claudeLocal } from "./claudeLocal";
 import { Session } from "./session";
 import { Future } from "@/utils/future";
 import { createSessionScanner } from "./utils/sessionScanner";
+import { formatErrorForUi } from "@/utils/formatErrorForUi";
 
 export async function claudeLocalLauncher(session: Session): Promise<'switch' | 'exit'> {
 
@@ -123,7 +124,7 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
             } catch (e) {
                 logger.debug('[local]: launch error', e);
                 if (!exitReason) {
-                    session.client.sendSessionEvent({ type: 'message', message: 'Process exited unexpectedly' });
+                    session.client.sendSessionEvent({ type: 'message', message: `Claude process error: ${formatErrorForUi(e)}` });
                     continue;
                 } else {
                     break;

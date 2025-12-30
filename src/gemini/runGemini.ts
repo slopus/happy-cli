@@ -27,6 +27,7 @@ import { MessageBuffer } from '@/ui/ink/messageBuffer';
 import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
 import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler';
 import { stopCaffeinate } from '@/utils/caffeinate';
+import { formatErrorForUi } from '@/utils/formatErrorForUi';
 
 import { createGeminiBackend } from '@/agent/acp/gemini';
 import type { AgentBackend, AgentMessage } from '@/agent/AgentBackend';
@@ -1039,7 +1040,7 @@ export async function runGemini(opts: {
               errorMsg = errorDetails || errorMessage || errObj.message;
             }
           } else if (error instanceof Error) {
-            errorMsg = error.message;
+            errorMsg = formatErrorForUi(error);
           }
           
           messageBuffer.addMessage(errorMsg, 'status');

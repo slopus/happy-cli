@@ -22,12 +22,13 @@ import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { MessageBuffer } from "@/ui/ink/messageBuffer";
 import { CodexDisplay } from "@/ui/ink/CodexDisplay";
 import { trimIdent } from "@/utils/trimIdent";
-import type { CodexSessionConfig } from './types';
+import type { CodexSessionConfig, CodexToolResponse } from './types';
 import { CHANGE_TITLE_INSTRUCTION } from '@/gemini/constants';
 import { notifyDaemonSessionStarted } from "@/daemon/controlClient";
 import { registerKillSessionHandler } from "@/claude/registerKillSessionHandler";
 import { delay } from "@/utils/time";
 import { stopCaffeinate } from "@/utils/caffeinate";
+import { formatErrorForUi } from "@/utils/formatErrorForUi";
 
 type ReadyEventOptions = {
     pending: unknown;
@@ -391,12 +392,46 @@ export async function runCodex(opts: {
         session.sendCodexMessage(message);
     });
     client.setPermissionHandler(permissionHandler);
+
+    function extractCodexToolErrorText(response: CodexToolResponse): string | null {
+        if (!response?.isError) {
+            return null;
+        }
+        const text = (response.content || [])
+            .map((c) => (c && typeof c.text === 'string' ? c.text : ''))
+            .filter(Boolean)
+            .join('\n')
+            .trim();
+        return text || 'Codex error';
+    }
+
+    function forwardCodexStatusToUi(messageText: string): void {
+        messageBuffer.addMessage(messageText, 'status');
+        session.sendSessionEvent({ type: 'message', message: messageText });
+    }
+
+    function forwardCodexErrorToUi(errorText: string): void {
+        forwardCodexStatusToUi(`Codex error: ${errorText}`);
+    }
+
     client.setHandler((msg) => {
         logger.debug(`[Codex] MCP message: ${JSON.stringify(msg)}`);
 
         // Add messages to the ink UI buffer based on message type
         if (msg.type === 'agent_message') {
             messageBuffer.addMessage(msg.message, 'assistant');
+        } else if (msg.type === 'error') {
+            const errorText = typeof msg.message === 'string' && msg.message.trim() ? msg.message.trim() : 'Codex error';
+            forwardCodexErrorToUi(errorText);
+        } else if (msg.type === 'stream_error') {
+            const status = typeof msg.message === 'string' && msg.message.trim() ? msg.message.trim() : 'Codex stream error';
+            forwardCodexStatusToUi(`Codex stream error: ${status}`);
+        } else if (msg.type === 'mcp_startup_update') {
+            if (msg.status?.state === 'failed') {
+                const errorText = typeof msg.status?.error === 'string' ? msg.status.error : 'MCP server failed to start';
+                const serverName = typeof msg.server === 'string' ? msg.server : 'unknown';
+                forwardCodexStatusToUi(`MCP server "${serverName}" failed to start: ${errorText}`);
+            }
         } else if (msg.type === 'agent_reasoning_delta') {
             // Skip reasoning deltas in the UI to reduce noise
         } else if (msg.type === 'agent_reasoning') {
@@ -671,10 +706,18 @@ export async function runCodex(opts: {
                         (startConfig.config as any).experimental_resume = resumeFile;
                     }
                     
-                    await client.startSession(
+                    const startResponse = await client.startSession(
                         startConfig,
                         { signal: abortController.signal }
                     );
+                    const startError = extractCodexToolErrorText(startResponse);
+                    if (startError) {
+                        forwardCodexErrorToUi(startError);
+                        client.clearSession();
+                        wasCreated = false;
+                        currentModeHash = null;
+                        continue;
+                    }
                     wasCreated = true;
                     first = false;
                 } else {
@@ -683,6 +726,14 @@ export async function runCodex(opts: {
                         { signal: abortController.signal }
                     );
                     logger.debug('[Codex] continueSession response:', response);
+                    const continueError = extractCodexToolErrorText(response);
+                    if (continueError) {
+                        forwardCodexErrorToUi(continueError);
+                        client.clearSession();
+                        wasCreated = false;
+                        currentModeHash = null;
+                        continue;
+                    }
                 }
             } catch (error) {
                 logger.warn('Error in codex session:', error);
@@ -697,8 +748,10 @@ export async function runCodex(opts: {
                     currentModeHash = null;
                     logger.debug('[Codex] Marked session as not created after abort for proper resume');
                 } else {
-                    messageBuffer.addMessage('Process exited unexpectedly', 'status');
-                    session.sendSessionEvent({ type: 'message', message: 'Process exited unexpectedly' });
+                    const details = formatErrorForUi(error);
+                    const messageText = `Codex process error: ${details}`;
+                    messageBuffer.addMessage(messageText, 'status');
+                    session.sendSessionEvent({ type: 'message', message: messageText });
                     // For unexpected exits, try to store session for potential recovery
                     if (client.hasActiveSession()) {
                         storedSessionIdForResume = client.storeSessionForResume();
