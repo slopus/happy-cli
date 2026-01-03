@@ -1,6 +1,6 @@
 {
   "name": "@yongkangc/happy-coder",
-  "version": "0.13.4",
+  "version": "0.13.6",
   "description": "Mobile and Web client for Claude Code and Codex",
   "author": "yongkangc",
   "license": "MIT",
@@ -71,7 +71,7 @@
     "postinstall": "node scripts/unpack-tools.cjs"
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "^2.0.60",
+    "@anthropic-ai/claude-code": "^2.0.64",
     "@anthropic-ai/sdk": "^0.71.2",
     "@modelcontextprotocol/sdk": "^1.15.1",
     "@stablelib/base64": "^2.0.1",
