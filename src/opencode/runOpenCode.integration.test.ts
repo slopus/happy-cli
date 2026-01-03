@@ -313,25 +313,60 @@ describe('OpenCode integration', () => {
         type: 'message';
         message: string;
         id: string;
-        options?: Array<{
-          optionId: string;
-          name: string;
-        }>;
+        options?: string[];  // Changed to simple string array
       }
 
       const payload: CodexMessagePayload = {
         type: 'message',
         message: 'Test message',
         id: 'test-id',
-        options: [
-          { optionId: '1', name: 'Option 1' },
-          { optionId: '2', name: 'Option 2' },
-        ],
+        options: ['Option 1', 'Option 2'],
       };
 
       expect(payload.type).toBe('message');
       expect(payload.message).toBe('Test message');
       expect(payload.options).toHaveLength(2);
+      expect(payload.options).toEqual(['Option 1', 'Option 2']);
+    });
+  });
+
+  describe('Options parsing integration', () => {
+    it('should parse options from response text', async () => {
+      const { parseOptionsFromText, formatOptionsXml } = await import('./utils/optionsParser');
+
+      const responseText = `Here's what I found:
+<options>
+  <option>Fix the bug</option>
+  <option>Refactor code</option>
+</options>`;
+
+      const { text, options } = parseOptionsFromText(responseText);
+
+      expect(text).toContain('Here\'s what I found:');
+      expect(text).not.toContain('<options>');
+      expect(options).toEqual(['Fix the bug', 'Refactor code']);
+    });
+
+    it('should format options as XML', async () => {
+      const { formatOptionsXml } = await import('./utils/optionsParser');
+
+      const xml = formatOptionsXml(['Option A', 'Option B']);
+
+      expect(xml).toContain('<options>');
+      expect(xml).toContain('<option>Option A</option>');
+      expect(xml).toContain('<option>Option B</option>');
+      expect(xml).toContain('</options>');
+    });
+
+    it('should handle response without options', async () => {
+      const { parseOptionsFromText } = await import('./utils/optionsParser');
+
+      const responseText = 'This is a plain response without options';
+
+      const { text, options } = parseOptionsFromText(responseText);
+
+      expect(options).toEqual([]);
+      expect(text).toBe('This is a plain response without options');
     });
   });
 });

@@ -36,6 +36,11 @@ import { OpenCodeDisplay } from '@/ui/ink/OpenCodeDisplay';
 import { OpenCodePermissionHandler } from '@/opencode/utils/permissionHandler';
 import type { PermissionMode, OpenCodeMode, CodexMessagePayload } from '@/opencode/types';
 import { readOpenCodeModel, writeOpenCodeModel } from './utils/config';
+import {
+  parseOptionsFromText,
+  hasIncompleteOptions,
+  formatOptionsXml,
+} from './utils/optionsParser';
 
 /**
  * Main entry point for the opencode command with ink UI
@@ -375,12 +380,25 @@ export async function runOpenCode(opts: {
 
             if (isResponseInProgress && accumulatedResponse.trim()) {
               const messageId = randomUUID();
+
+              // Parse options from response text
+              const { text: messageText, options } = parseOptionsFromText(accumulatedResponse);
+
+              // Re-add options XML to message for mobile app parsing
+              const finalMessageText = messageText + formatOptionsXml(options);
+
               const messagePayload: CodexMessagePayload = {
                 type: 'message',
-                message: accumulatedResponse,
+                message: finalMessageText,
                 id: messageId,
+                ...(options.length > 0 && { options }),
               };
               session.sendCodexMessage(messagePayload);
+
+              if (options.length > 0) {
+                logger.debug(`[opencode] Sending message with ${options.length} options`);
+              }
+
               accumulatedResponse = '';
               isResponseInProgress = false;
             }

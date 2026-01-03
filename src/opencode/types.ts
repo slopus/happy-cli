@@ -22,13 +22,13 @@ export interface OpenCodeMode {
 
 /**
  * Codex-compatible message payload for mobile app communication
+ *
+ * Note: options is a simple string array to match mobile app expectations
+ * and be consistent with Gemini/Claude implementations.
  */
 export interface CodexMessagePayload {
   type: 'message';
   message: string;
   id: string;
-  options?: Array<{
-    optionId: string;
-    name: string;
-  }>;
+  options?: string[];
 }
