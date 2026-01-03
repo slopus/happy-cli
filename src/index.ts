@@ -325,6 +325,19 @@ import { execFileSync } from 'node:child_process'
       process.exit(1)
     }
     return;
+  } else if (subcommand === 'git-hook') {
+    // Handle git-hook subcommands
+    try {
+      const { handleGitHookCommand } = await import('./commands/gitHook');
+      await handleGitHookCommand(args.slice(1));
+    } catch (error) {
+      console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
+      if (process.env.DEBUG) {
+        console.error(error)
+      }
+      process.exit(1)
+    }
+    return;
   } else if (subcommand === 'daemon') {
     // Show daemon management help
     const daemonSubcommand = args[1]
@@ -509,6 +522,7 @@ ${chalk.bold('Usage:')}
   happy opencode          Start OpenCode mode (ACP)
   happy connect           Connect AI vendor API keys
   happy notify            Send push notification
+  happy git-hook          Manage git pre-commit hooks
   happy daemon            Manage background service that allows
                             to spawn new sessions away from your computer
   happy doctor            System diagnostics & troubleshooting

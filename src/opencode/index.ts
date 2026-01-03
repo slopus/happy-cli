@@ -7,3 +7,5 @@ export { readOpenCodeConfig, getMergedMcpServers, readOpenCodeModel, writeOpenCo
 export { OPENCODE_API_KEY_ENVS, OPENCODE_CONFIG_DIR, OPENCODE_CONFIG_FILE } from './constants';
 export { OpenCodePermissionHandler } from './utils/permissionHandler';
 export type { PermissionMode, OpenCodeMode, CodexMessagePayload } from './types';
+export { GitHookManager, gitHookManager } from './hooks/gitHookManager';
+export { SessionTracker, createSessionTracker } from './hooks/sessionTracker';

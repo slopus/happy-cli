@@ -32,6 +32,7 @@ import { stopCaffeinate } from '@/utils/caffeinate';
 
 import { createOpenCodeBackend } from '@/agent/acp/opencode';
 import type { AgentBackend, AgentMessage } from '@/agent/AgentBackend';
+import { createSessionTracker } from './hooks/sessionTracker';
 import { OpenCodeDisplay } from '@/ui/ink/OpenCodeDisplay';
 import { OpenCodePermissionHandler } from '@/opencode/utils/permissionHandler';
 import type { PermissionMode, OpenCodeMode, CodexMessagePayload } from '@/opencode/types';
@@ -200,6 +201,21 @@ export async function runOpenCode(opts: {
   let opencodeBackend: AgentBackend | null = null;
   let acpSessionId: string | null = null;
   let wasSessionCreated = false;
+
+  //
+  // Session tracking
+  //
+
+  const sessionTracker = createSessionTracker({
+    onSessionId: (sessionId: string) => {
+      logger.debug(`[opencode] Session ID captured: ${sessionId}`);
+      // Update session metadata with OpenCode session ID
+      session.updateMetadata((currentMetadata) => ({
+        ...currentMetadata,
+        opencodeSessionId: sessionId,
+      }));
+    },
+  });
 
   async function handleAbort() {
     logger.debug('[OpenCode] Abort requested - stopping current task');
@@ -537,6 +553,9 @@ export async function runOpenCode(opts: {
               logger.debug(`[opencode] ACP session started: ${acpSessionId}`);
               wasSessionCreated = true;
               currentModeHash = message.hash;
+
+              // Capture session ID for tracking
+              sessionTracker.captureSessionId(sessionId);
             }
           }
 
