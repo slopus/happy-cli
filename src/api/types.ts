@@ -286,6 +286,17 @@ export const MessageContentSchema = z.union([UserMessageSchema, AgentMessageSche
 
 export type MessageContent = z.infer<typeof MessageContentSchema>
 
+/**
+ * Model definition for mobile app model selector
+ */
+export const ModelSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  provider: z.enum(['anthropic', 'openai', 'google', 'other'])
+})
+
+export type Model = z.infer<typeof ModelSchema>
+
 export type Metadata = {
   path: string,
   host: string,
@@ -312,7 +323,10 @@ export type Metadata = {
   lifecycleStateSince?: number,
   archivedBy?: string,
   archiveReason?: string,
-  flavor?: string
+  flavor?: string,
+  // Model configuration for mobile app
+  availableModels?: Model[], // Available models from CLI configuration
+  selectedModel?: string // Currently selected model ID
 };
 
 export type AgentState = {

@@ -8,6 +8,8 @@ import { run as runRipgrep } from '@/modules/ripgrep/index';
 import { run as runDifftastic } from '@/modules/difftastic/index';
 import { RpcHandlerManager } from '../../api/rpc/RpcHandlerManager';
 import { validatePath } from './pathSecurity';
+import { ApiSessionClient } from '@/api/apiSession';
+import { Model } from '@/api/types';
 
 const execAsync = promisify(exec);
 
@@ -110,6 +112,15 @@ interface DifftasticResponse {
     error?: string;
 }
 
+interface SetModelRequest {
+    modelId: string;
+}
+
+interface SetModelResponse {
+    success: boolean;
+    message?: string;
+}
+
 /*
  * Spawn Session Options and Result
  * This rpc type is used by the daemon, all other RPCs here are for sessions
@@ -132,7 +143,11 @@ export type SpawnSessionResult =
 /**
  * Register all RPC handlers with the session
  */
-export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, workingDirectory: string) {
+export function registerCommonHandlers(
+    rpcHandlerManager: RpcHandlerManager,
+    workingDirectory: string,
+    apiSession?: ApiSessionClient
+) {
 
     // Shell command handler - executes commands in the default shell
     rpcHandlerManager.registerHandler<BashRequest, BashResponse>('bash', async (data) => {
@@ -480,4 +495,45 @@ export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, wor
             };
         }
     });
+
+    // Set model handler - updates the selected model in session metadata
+    if (apiSession) {
+        rpcHandlerManager.registerHandler<SetModelRequest, SetModelResponse>('setModel', async (data) => {
+            logger.debug('Set model request:', data.modelId);
+
+            try {
+                // Get current metadata to validate modelId against available models
+                const currentMetadata = apiSession['metadata']; // Access private property
+
+                // Validate modelId if available models are defined
+                if (currentMetadata && currentMetadata.availableModels && currentMetadata.availableModels.length > 0) {
+                    const modelExists = currentMetadata.availableModels.some(
+                        (model: Model) => model.id === data.modelId
+                    );
+
+                    if (!modelExists) {
+                        return {
+                            success: false,
+                            message: `Model ID '${data.modelId}' not found in available models`
+                        };
+                    }
+                }
+
+                // Update session metadata with selected model
+                apiSession.updateMetadata((metadata) => ({
+                    ...metadata,
+                    selectedModel: data.modelId
+                }));
+
+                logger.debug(`Model updated to: ${data.modelId}`);
+                return { success: true };
+            } catch (error) {
+                logger.debug('Failed to set model:', error);
+                return {
+                    success: false,
+                    message: error instanceof Error ? error.message : 'Failed to set model'
+                };
+            }
+        });
+    }
 }
