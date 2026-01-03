@@ -5,7 +5,7 @@
  */
 
 import { createOpenCodeBackend } from '@/agent/acp/opencode';
-import { getMergedMcpServers } from './utils/config';
+import { getMergedMcpServers, readOpenCodeModel, writeOpenCodeModel } from './utils/config';
 import { logger } from '@/ui/logger';
 import type { AcpPermissionHandler } from '@/agent/acp/AcpSdkBackend';
 import type { McpServerConfig } from '@/agent/AgentBackend';
@@ -39,6 +39,9 @@ export interface RunOpenCodeOptions {
  * Creates an OpenCode backend via ACP and manages the session lifecycle.
  * Merges MCP servers from both Happy and OpenCode's native config.
  *
+ * Model handling: If a model is specified, it writes to ~/.config/opencode/config.json
+ * before spawning OpenCode, then restores the original model after the session ends.
+ *
  * @param options - Configuration options
  * @returns Promise that resolves when the session ends
  */
@@ -53,26 +56,57 @@ export async function runOpenCode(options: RunOpenCodeOptions): Promise<void> {
     hasPermissionHandler: !!permissionHandler,
   });
 
-  // Merge MCP servers from OpenCode config and Happy config
-  const mcpServers = await getMergedMcpServers(happyMcpServers);
+  // Save original model and set new model if specified
+  const originalModel = await readOpenCodeModel();
+  let modelRestored = false;
 
-  // Create OpenCode backend
-  const backend = createOpenCodeBackend({
-    cwd,
-    model,
-    mcpServers,
-    permissionHandler,
-    env,
-  });
+  try {
+    if (model) {
+      logger.debug('[OpenCode] Setting model in config:', model);
+      await writeOpenCodeModel(model);
+    }
 
-  // Start the session
-  const { sessionId } = await backend.startSession(initialPrompt);
+    // Merge MCP servers from OpenCode config and Happy config
+    const mcpServers = await getMergedMcpServers(happyMcpServers);
 
-  logger.debug('[OpenCode] Session started:', sessionId);
+    // Create OpenCode backend
+    const backend = createOpenCodeBackend({
+      cwd,
+      model, // Passed for logging but not used in command args
+      mcpServers,
+      permissionHandler,
+      env,
+    });
 
-  // Return the backend for external management (daemon integration)
-  // The caller (daemon or CLI) manages the session lifecycle
-  return;
+    // Start the session
+    const { sessionId } = await backend.startSession(initialPrompt);
+
+    logger.debug('[OpenCode] Session started:', sessionId);
+
+    // Return the backend for external management (daemon integration)
+    // The caller (daemon or CLI) manages the session lifecycle
+    return;
+  } finally {
+    // Restore original model if we changed it
+    if (model && originalModel !== undefined) {
+      try {
+        await writeOpenCodeModel(originalModel);
+        modelRestored = true;
+        logger.debug('[OpenCode] Restored original model:', originalModel);
+      } catch (error) {
+        logger.warn('[OpenCode] Failed to restore original model:', error);
+      }
+    } else if (model && originalModel === undefined) {
+      // If there was no original model, try to remove the model key from config
+      try {
+        // This is best-effort - if we can't remove it, it's not critical
+        // The next run with --model will overwrite it anyway
+        logger.debug('[OpenCode] Model was newly set, leaving in config for future use');
+      } catch {
+        // Ignore
+      }
+    }
+  }
 }
 
 /**

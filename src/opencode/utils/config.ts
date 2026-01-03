@@ -5,7 +5,7 @@
  * and provides MCP server merging with Happy's config.
  */
 
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { logger } from '@/ui/logger';
@@ -16,6 +16,7 @@ import type { McpServerConfig } from '@/agent/AgentBackend';
  * OpenCode config.json structure (partial - only what we need)
  */
 export interface OpenCodeConfig {
+  model?: string;
   mcpServers?: Record<string, {
     command: string;
     args?: string[];
@@ -91,4 +92,49 @@ export async function getMergedMcpServers(
   });
 
   return merged;
+}
+
+/**
+ * Read the current model from OpenCode config
+ *
+ * @returns Current model or undefined if not set
+ */
+export async function readOpenCodeModel(): Promise<string | undefined> {
+  const config = await readOpenCodeConfig();
+  return config.model;
+}
+
+/**
+ * Write model to OpenCode config
+ * Creates config directory and file if they don't exist
+ *
+ * @param model - Model to set (e.g., 'anthropic/claude-sonnet-4-20250514')
+ */
+export async function writeOpenCodeModel(model: string): Promise<void> {
+  const configDir = join(homedir(), OPENCODE_CONFIG_DIR);
+  const configPath = join(configDir, OPENCODE_CONFIG_FILE);
+
+  try {
+    // Ensure config directory exists
+    await mkdir(configDir, { recursive: true });
+
+    // Read existing config or create new
+    let config: OpenCodeConfig = {};
+    try {
+      const content = await readFile(configPath, 'utf-8');
+      config = JSON.parse(content) as OpenCodeConfig;
+    } catch {
+      // Config doesn't exist or is invalid, start fresh
+    }
+
+    // Update model
+    config.model = model;
+
+    // Write back
+    await writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    logger.debug('[OpenCode] Wrote model to config:', { model, configPath });
+  } catch (error) {
+    logger.warn('[OpenCode] Failed to write model to config:', error);
+    throw error;
+  }
 }

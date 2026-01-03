@@ -16,7 +16,7 @@ import { logger } from '@/ui/logger';
  * Options for creating an OpenCode ACP backend
  */
 export interface OpenCodeBackendOptions extends AgentFactoryOptions {
-  /** Model to use (passed via --model flag) */
+  /** Model to use (written to config.json before spawning) */
   model?: string;
 
   /** MCP servers to make available to the agent */
@@ -32,6 +32,9 @@ export interface OpenCodeBackendOptions extends AgentFactoryOptions {
  * OpenCode must be installed and available in PATH.
  * Uses the `opencode acp` command to enable ACP mode.
  *
+ * Note: Model is set via ~/.config/opencode/config.json, not via command line.
+ * The `opencode acp` command does not support --model flag.
+ *
  * @param options - Configuration options
  * @returns AgentBackend instance for OpenCode
  */
@@ -39,15 +42,9 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions): AgentBac
   const command = 'opencode';
   const args = ['acp'];
 
-  // Add model flag if specified
-  if (options.model) {
-    args.push('--model', options.model);
-  }
-
-  // Add working directory
-  if (options.cwd) {
-    args.push('--cwd', options.cwd);
-  }
+  // Note: We don't pass --model flag because `opencode acp` doesn't support it.
+  // Model should be set via ~/.config/opencode/config.json before spawning.
+  // The model option is kept for API compatibility but handling is done by the caller.
 
   const backendOptions: AcpSdkBackendOptions = {
     agentName: 'opencode',
