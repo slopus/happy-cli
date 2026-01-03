@@ -1,0 +1,353 @@
+name: OpenCode Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  # Fast unit tests - run on every commit
+  unit-tests:
+    name: Unit Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [20, 24]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'yarn'
+
+    - name: Install dependencies
+      run: yarn install --immutable
+
+    - name: Run unit tests
+      run: yarn test --run src/opencode/__tests__/unit
+
+  # Integration tests - run on every commit
+  integration-tests:
+    name: Integration Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [20, 24]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'yarn'
+
+    - name: Install dependencies
+      run: yarn install --immutable
+
+    - name: Run integration tests
+      run: yarn test --run src/opencode/__tests__/integration
+
+  # E2E tests - run on every commit
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [20, 24]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'yarn'
+
+    - name: Install dependencies
+      run: yarn install --immutable
+
+    - name: Run E2E tests
+      run: yarn test --run src/opencode/__tests__/e2e
+
+  # Performance tests - run on every commit but with timeout
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'yarn'
+
+    - name: Install dependencies
+      run: yarn install --immutable
+
+    - name: Run performance tests
+      run: yarn test --run src/opencode/__tests__/performance
+
+    - name: Upload performance metrics
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-metrics
+        path: |
+          .performance-output.json
+          test-results/
+
+  # Resilience tests - run on every commit
+  resilience-tests:
+    name: Resilience Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [20, 24]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'yarn'
+
+    - name: Install dependencies
+      run: yarn install --immutable
+
+    - name: Run resilience tests
+      run: yarn test --run src/opencode/__tests__/resilience
+
+  # Full test suite - runs on schedule and manual trigger
+  full-test-suite:
+    name: Full Test Suite
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: [20, 22, 24]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'yarn'
+
+    - name: Install dependencies
+      run: yarn install --immutable
+
+    - name: Build package
+      run: yarn build
+
+    - name: Run all OpenCode tests
+      run: yarn test --run src/opencode/__tests__
+
+    - name: Generate test coverage report
+      run: yarn test --coverage src/opencode/__tests__ --reporter=json
+      continue-on-error: true
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.os }}-node${{ matrix.node-version }}
+        path: |
+          test-results/
+          coverage/
+
+    - name: Upload coverage to Codecov
+      if: matrix.os == 'ubuntu-latest' && matrix.node-version == 20
+      uses: codecov/codecov-action@v4
+      with:
+        files: ./coverage/coverage-final.json
+        flags: opencode
+        name: codecov-opencode
+      continue-on-error: true
+
+  # Test performance regression detection
+  performance-regression:
+    name: Performance Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Fetch all history for comparison
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'yarn'
+
+    - name: Install dependencies
+      run: yarn install --immutable
+
+    - name: Checkout main branch for baseline
+      run: |
+        git checkout main
+        git pull
+
+    - name: Run baseline performance tests
+      run: |
+        yarn test --run src/opencode/__tests__/performance > baseline-performance.txt
+        cat baseline-performance.txt
+
+    - name: Checkout PR branch
+      if: github.event_name == 'pull_request'
+      run: |
+        git checkout ${{ github.head_ref }}
+
+    - name: Run PR performance tests
+      run: |
+        yarn test --run src/opencode/__tests__/performance > pr-performance.txt
+        cat pr-performance.txt
+
+    - name: Compare performance
+      run: |
+        echo "Baseline performance:"
+        cat baseline-performance.txt | grep -E "(Duration|passed|failed)" || true
+        echo ""
+        echo "PR performance:"
+        cat pr-performance.txt | grep -E "(Duration|passed|failed)" || true
+
+    - name: Check for significant slowdown
+      run: |
+        BASELINE=$(cat baseline-performance.txt | grep -oP '\d+(?=ms)' | head -1 || echo "0")
+        PR=$(cat pr-performance.txt | grep -oP '\d+(?=ms)' | head -1 || echo "0")
+
+        echo "Baseline duration: ${BASELINE}ms"
+        echo "PR duration: ${PR}ms"
+
+        if [ "$PR" -gt "$((BASELINE + 10000))" ]; then
+          echo "⚠️ Warning: PR is 10+ seconds slower than baseline"
+          exit 1
+        fi
+
+    - name: Upload performance comparison
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-comparison
+        path: |
+          baseline-performance.txt
+          pr-performance.txt
+
+  # Nightly comprehensive test run
+  nightly-tests:
+    name: Nightly Comprehensive Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [20, 24]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'yarn'
+
+    - name: Install dependencies
+      run: yarn install --immutable
+
+    - name: Run full test suite with coverage
+      run: |
+        yarn test --run --coverage src/opencode/__tests__
+
+    - name: Generate coverage report
+      run: yarn test --coverage src/opencode/__tests__ --reporter=json
+
+    - name: Upload coverage reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-${{ matrix.os }}-node${{ matrix.node-version }}
+        path: coverage/
+
+    - name: Comment coverage on PR
+      if: github.event_name == 'schedule' && github.ref == 'refs/heads/main'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Post coverage summary as comment
+          console.log('Coverage report uploaded as artifact')
+
+  # Test results summary
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, e2e-tests, performance-tests, resilience-tests]
+    if: always()
+
+    steps:
+    - name: Download all test results
+      uses: actions/download-artifact@v4
+
+    - name: Generate test summary
+      run: |
+        echo "# OpenCode Test Summary" > test-summary.md
+        echo "" >> test-summary.md
+        echo "| Job | Status |" >> test-summary.md
+        echo "|-----|--------|" >> test-summary.md
+        echo "| Unit Tests | ${{ needs.unit-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> test-summary.md
+        echo "| Integration Tests | ${{ needs.integration-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> test-summary.md
+        echo "| E2E Tests | ${{ needs.e2e-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> test-summary.md
+        echo "| Performance Tests | ${{ needs.performance-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> test-summary.md
+        echo "| Resilience Tests | ${{ needs.resilience-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> test-summary.md
+        echo "" >> test-summary.md
+        cat test-summary.md
+
+    - name: Upload test summary
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-summary
+        path: test-summary.md
+
+    - name: Check overall status
+      run: |
+        if [[ "${{ needs.unit-tests.result }}" == "failure" ]] ||
+           [[ "${{ needs.integration-tests.result }}" == "failure" ]] ||
+           [[ "${{ needs.e2e-tests.result }}" == "failure" ]] ||
+           [[ "${{ needs.performance-tests.result }}" == "failure" ]] ||
+           [[ "${{ needs.resilience-tests.result }}" == "failure" ]]; then
+          echo "❌ Some test suites failed"
+          exit 1
+        fi
+        echo "✅ All test suites passed!"
