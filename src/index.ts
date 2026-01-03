@@ -287,6 +287,7 @@ import { execFileSync } from 'node:child_process'
       }
 
       await runOpenCode({
+        credentials,
         cwd,
         model,
         initialPrompt,

@@ -1,111 +1,615 @@
 /**
- * OpenCode Runner - Main entry point for running OpenCode with Happy
+ * OpenCode CLI Entry Point
  *
- * Orchestrates OpenCode sessions with remote control from Happy mobile app.
+ * This module provides the main entry point for running the OpenCode agent
+ * through Happy CLI. It manages the agent lifecycle, session state, and
+ * communication with the Happy server and mobile app.
+ *
+ * Based on the Gemini implementation but simplified for OpenCode.
  */
+
+import { render } from 'ink';
+import React from 'react';
+import { randomUUID } from 'node:crypto';
+import os from 'node:os';
+import { join, resolve } from 'node:path';
+
+import { ApiClient } from '@/api/api';
+import { logger } from '@/ui/logger';
+import { Credentials, readSettings } from '@/persistence';
+import { AgentState, Metadata } from '@/api/types';
+import { initialMachineMetadata } from '@/daemon/run';
+import { configuration } from '@/configuration';
+import packageJson from '../../package.json';
+import { MessageQueue2 } from '@/utils/MessageQueue2';
+import { hashObject } from '@/utils/deterministicJson';
+import { projectPath } from '@/projectPath';
+import { startHappyServer } from '@/claude/utils/startHappyServer';
+import { MessageBuffer } from '@/ui/ink/messageBuffer';
+import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
+import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler';
+import { stopCaffeinate } from '@/utils/caffeinate';
 
 import { createOpenCodeBackend } from '@/agent/acp/opencode';
-import { getMergedMcpServers, readOpenCodeModel, writeOpenCodeModel } from './utils/config';
-import { logger } from '@/ui/logger';
-import type { AcpPermissionHandler } from '@/agent/acp/AcpSdkBackend';
-import type { McpServerConfig } from '@/agent/AgentBackend';
+import type { AgentBackend, AgentMessage } from '@/agent/AgentBackend';
+import { OpenCodeDisplay } from '@/ui/ink/OpenCodeDisplay';
+import { OpenCodePermissionHandler } from '@/opencode/utils/permissionHandler';
+import type { PermissionMode, OpenCodeMode, CodexMessagePayload } from '@/opencode/types';
+import { readOpenCodeModel, writeOpenCodeModel } from './utils/config';
 
 /**
- * Options for running OpenCode
+ * Main entry point for the opencode command with ink UI
  */
-export interface RunOpenCodeOptions {
-  /** Working directory */
-  cwd: string;
-
-  /** Model to use (e.g., 'claude-sonnet-4-20250514', 'gpt-4o') */
+export async function runOpenCode(opts: {
+  credentials: Credentials;
+  startedBy?: 'daemon' | 'terminal';
+  cwd?: string;
   model?: string;
-
-  /** Initial prompt to send */
   initialPrompt?: string;
+}): Promise<void> {
+  //
+  // Define session
+  //
 
-  /** MCP servers from Happy config */
-  happyMcpServers?: Record<string, McpServerConfig>;
+  const sessionTag = randomUUID();
+  const api = await ApiClient.create(opts.credentials);
 
-  /** Permission handler for tool approval */
-  permissionHandler?: AcpPermissionHandler;
+  //
+  // Machine
+  //
 
-  /** Environment variables to pass to OpenCode */
-  env?: Record<string, string>;
-}
-
-/**
- * Run OpenCode with Happy integration
- *
- * Creates an OpenCode backend via ACP and manages the session lifecycle.
- * Merges MCP servers from both Happy and OpenCode's native config.
- *
- * Model handling: If a model is specified, it writes to ~/.config/opencode/config.json
- * before spawning OpenCode, then restores the original model after the session ends.
- *
- * @param options - Configuration options
- * @returns Promise that resolves when the session ends
- */
-export async function runOpenCode(options: RunOpenCodeOptions): Promise<void> {
-  const { cwd, model, initialPrompt, happyMcpServers, permissionHandler, env } = options;
-
-  logger.debug('[OpenCode] Starting with options:', {
-    cwd,
-    model,
-    hasInitialPrompt: !!initialPrompt,
-    happyMcpServerCount: happyMcpServers ? Object.keys(happyMcpServers).length : 0,
-    hasPermissionHandler: !!permissionHandler,
+  const settings = await readSettings();
+  const machineId = settings?.machineId;
+  if (!machineId) {
+    console.error(`[START] No machine ID found in settings, which is unexpected since authAndSetupMachineIfNeeded should have created it. Please report this issue on https://github.com/slopus/happy-cli/issues`);
+    process.exit(1);
+  }
+  logger.debug(`Using machineId: ${machineId}`);
+  await api.getOrCreateMachine({
+    machineId,
+    metadata: initialMachineMetadata
   });
 
-  // Save original model and set new model if specified
-  const originalModel = await readOpenCodeModel();
-  let modelRestored = false;
+  //
+  // Create session
+  //
 
+  const state: AgentState = {
+    controlledByUser: false,
+  };
+  const metadata: Metadata = {
+    path: opts.cwd || process.cwd(),
+    host: os.hostname(),
+    version: packageJson.version,
+    os: os.platform(),
+    machineId: machineId,
+    homeDir: os.homedir(),
+    happyHomeDir: configuration.happyHomeDir,
+    happyLibDir: projectPath(),
+    happyToolsDir: resolve(projectPath(), 'tools', 'unpacked'),
+    startedFromDaemon: opts.startedBy === 'daemon',
+    hostPid: process.pid,
+    startedBy: opts.startedBy || 'terminal',
+    lifecycleState: 'running',
+    lifecycleStateSince: Date.now(),
+    flavor: 'opencode'
+  };
+  const response = await api.getOrCreateSession({ tag: sessionTag, metadata, state });
+  const session = api.sessionSyncClient(response);
+
+  // Report to daemon
   try {
-    if (model) {
-      logger.debug('[OpenCode] Setting model in config:', model);
-      await writeOpenCodeModel(model);
+    logger.debug(`[START] Reporting session ${response.id} to daemon`);
+    const result = await notifyDaemonSessionStarted(response.id, metadata);
+    if (result.error) {
+      logger.debug(`[START] Failed to report to daemon (may not be running):`, result.error);
+    } else {
+      logger.debug(`[START] Reported session ${response.id} to daemon`);
+    }
+  } catch (error) {
+    logger.debug('[START] Failed to report to daemon (may not be running):', error);
+  }
+
+  const messageQueue = new MessageQueue2<OpenCodeMode>((mode) => hashObject({
+    permissionMode: mode.permissionMode,
+    model: mode.model,
+  }));
+
+  // Track current overrides to apply per message
+  let currentPermissionMode: PermissionMode | undefined = undefined;
+  let currentModel: string | undefined = opts.model;
+
+  session.onUserMessage((message) => {
+    // Resolve permission mode
+    let messagePermissionMode = currentPermissionMode;
+    if (message.meta?.permissionMode) {
+      const validModes: PermissionMode[] = ['default', 'read-only', 'safe-yolo', 'yolo'];
+      if (validModes.includes(message.meta.permissionMode as PermissionMode)) {
+        messagePermissionMode = message.meta.permissionMode as PermissionMode;
+        currentPermissionMode = messagePermissionMode;
+        updatePermissionMode(messagePermissionMode);
+        logger.debug(`[OpenCode] Permission mode updated from user message to: ${currentPermissionMode}`);
+      }
     }
 
-    // Merge MCP servers from OpenCode config and Happy config
-    const mcpServers = await getMergedMcpServers(happyMcpServers);
+    if (currentPermissionMode === undefined) {
+      currentPermissionMode = 'default';
+      updatePermissionMode('default');
+    }
 
-    // Create OpenCode backend
-    const backend = createOpenCodeBackend({
-      cwd,
-      model, // Passed for logging but not used in command args
-      mcpServers,
-      permissionHandler,
-      env,
+    // Resolve model
+    let messageModel = currentModel;
+    if (message.meta?.hasOwnProperty('model')) {
+      if (message.meta.model === null) {
+        messageModel = undefined;
+        currentModel = undefined;
+      } else if (message.meta.model) {
+        messageModel = message.meta.model;
+        currentModel = messageModel;
+        messageBuffer.addMessage(`Model changed to: ${messageModel}`, 'system');
+      }
+    }
+
+    const mode: OpenCodeMode = {
+      permissionMode: messagePermissionMode || 'default',
+      model: messageModel,
+    };
+    messageQueue.push(message.content.text, mode);
+  });
+
+  let thinking = false;
+  session.keepAlive(thinking, 'remote');
+  const keepAliveInterval = setInterval(() => {
+    session.keepAlive(thinking, 'remote');
+  }, 2000);
+
+  const sendReady = () => {
+    session.sendSessionEvent({ type: 'ready' });
+    try {
+      api.push().sendToAllDevices(
+        "It's ready!",
+        'OpenCode is waiting for your command',
+        { sessionId: session.sessionId }
+      );
+    } catch (pushError) {
+      logger.debug('[OpenCode] Failed to send ready push', pushError);
+    }
+  };
+
+  const emitReadyIfIdle = (): boolean => {
+    if (shouldExit) return false;
+    if (thinking) return false;
+    if (isResponseInProgress) return false;
+    if (messageQueue.size() > 0) return false;
+
+    sendReady();
+    return true;
+  };
+
+  //
+  // Abort handling
+  //
+
+  let abortController = new AbortController();
+  let shouldExit = false;
+  let opencodeBackend: AgentBackend | null = null;
+  let acpSessionId: string | null = null;
+  let wasSessionCreated = false;
+
+  async function handleAbort() {
+    logger.debug('[OpenCode] Abort requested - stopping current task');
+
+    session.sendCodexMessage({
+      type: 'turn_aborted',
+      id: randomUUID(),
     });
 
-    // Start the session
-    const { sessionId } = await backend.startSession(initialPrompt);
-
-    logger.debug('[OpenCode] Session started:', sessionId);
-
-    // Return the backend for external management (daemon integration)
-    // The caller (daemon or CLI) manages the session lifecycle
-    return;
-  } finally {
-    // Restore original model if we changed it
-    if (model && originalModel !== undefined) {
-      try {
-        await writeOpenCodeModel(originalModel);
-        modelRestored = true;
-        logger.debug('[OpenCode] Restored original model:', originalModel);
-      } catch (error) {
-        logger.warn('[OpenCode] Failed to restore original model:', error);
+    try {
+      abortController.abort();
+      messageQueue.reset();
+      if (opencodeBackend && acpSessionId) {
+        await opencodeBackend.cancel(acpSessionId);
       }
-    } else if (model && originalModel === undefined) {
-      // If there was no original model, try to remove the model key from config
-      try {
-        // This is best-effort - if we can't remove it, it's not critical
-        // The next run with --model will overwrite it anyway
-        logger.debug('[OpenCode] Model was newly set, leaving in config for future use');
-      } catch {
-        // Ignore
+      logger.debug('[OpenCode] Abort completed - session remains active');
+    } catch (error) {
+      logger.debug('[OpenCode] Error during abort:', error);
+    } finally {
+      abortController = new AbortController();
+    }
+  }
+
+  const handleKillSession = async () => {
+    logger.debug('[OpenCode] Kill session requested - terminating process');
+    await handleAbort();
+
+    try {
+      if (session) {
+        session.updateMetadata((currentMetadata) => ({
+          ...currentMetadata,
+          lifecycleState: 'archived',
+          lifecycleStateSince: Date.now(),
+          archivedBy: 'cli',
+          archiveReason: 'User terminated'
+        }));
+
+        session.sendSessionDeath();
+        await session.flush();
+        await session.close();
+      }
+
+      stopCaffeinate();
+      happyServer.stop();
+
+      if (opencodeBackend) {
+        await opencodeBackend.dispose();
+      }
+
+      logger.debug('[OpenCode] Session termination complete, exiting');
+      process.exit(0);
+    } catch (error) {
+      logger.debug('[OpenCode] Error during session termination:', error);
+      process.exit(1);
+    }
+  };
+
+  session.rpcHandlerManager.registerHandler('abort', handleAbort);
+  registerKillSessionHandler(session.rpcHandlerManager, handleKillSession);
+
+  //
+  // Initialize Ink UI
+  //
+
+  const messageBuffer = new MessageBuffer();
+  const hasTTY = process.stdout.isTTY && process.stdin.isTTY;
+  let inkInstance: ReturnType<typeof render> | null = null;
+
+  // Track current model for UI display
+  let displayedModel: string | undefined = currentModel;
+
+  const updateDisplayedModel = (model: string | undefined) => {
+    if (model === undefined) return;
+    displayedModel = model;
+    if (hasTTY) {
+      messageBuffer.addMessage(`[MODEL:${model}]`, 'system');
+    }
+  };
+
+  if (hasTTY) {
+    console.clear();
+    const DisplayComponent = () => {
+      const currentModelValue = displayedModel || 'opencode';
+      return React.createElement(OpenCodeDisplay, {
+        messageBuffer,
+        logPath: process.env.DEBUG ? logger.getLogPath() : undefined,
+        currentModel: currentModelValue,
+        onExit: async () => {
+          logger.debug('[opencode]: Exiting agent via Ctrl-C');
+          shouldExit = true;
+          await handleAbort();
+        }
+      });
+    };
+
+    inkInstance = render(React.createElement(DisplayComponent), {
+      exitOnCtrlC: false,
+      patchConsole: false
+    });
+
+    const initialModelName = displayedModel || 'opencode';
+    messageBuffer.addMessage(`[MODEL:${initialModelName}]`, 'system');
+  }
+
+  if (hasTTY) {
+    process.stdin.resume();
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(true);
+    }
+    process.stdin.setEncoding('utf8');
+  }
+
+  //
+  // Start Happy MCP server and create OpenCode backend
+  //
+
+  const happyServer = await startHappyServer(session);
+  const bridgeCommand = join(projectPath(), 'bin', 'happy-mcp.mjs');
+  const mcpServers = {
+    happy: {
+      command: bridgeCommand,
+      args: ['--url', happyServer.url]
+    }
+  };
+
+  // Create permission handler for tool approval
+  const permissionHandler = new OpenCodePermissionHandler(session);
+
+  const updatePermissionMode = (mode: PermissionMode) => {
+    permissionHandler.setPermissionMode(mode);
+  };
+
+  // Accumulate OpenCode response text
+  let accumulatedResponse = '';
+  let isResponseInProgress = false;
+
+  /**
+   * Set up message handler for OpenCode backend
+   */
+  function setupOpenCodeMessageHandler(backend: AgentBackend): void {
+    backend.onMessage((msg: AgentMessage) => {
+      switch (msg.type) {
+        case 'model-output':
+          if (msg.textDelta) {
+            if (!isResponseInProgress) {
+              messageBuffer.removeLastMessage('system');
+              messageBuffer.addMessage(msg.textDelta, 'assistant');
+              isResponseInProgress = true;
+            } else {
+              messageBuffer.updateLastMessage(msg.textDelta, 'assistant');
+            }
+            accumulatedResponse += msg.textDelta;
+          }
+          break;
+
+        case 'status':
+          logger.debug(`[opencode] Status changed: ${msg.status}${msg.detail ? ` - ${msg.detail}` : ''}`);
+
+          if (msg.status === 'error') {
+            logger.debug(`[opencode] Error status received: ${msg.detail || 'Unknown error'}`);
+            session.sendCodexMessage({
+              type: 'turn_aborted',
+              id: randomUUID(),
+            });
+          }
+
+          if (msg.status === 'running') {
+            thinking = true;
+            session.keepAlive(thinking, 'remote');
+            session.sendCodexMessage({
+              type: 'task_started',
+              id: randomUUID(),
+            });
+            messageBuffer.addMessage('Thinking...', 'system');
+          } else if (msg.status === 'idle' || msg.status === 'stopped') {
+            thinking = false;
+            session.keepAlive(thinking, 'remote');
+
+            if (isResponseInProgress && accumulatedResponse.trim()) {
+              const messageId = randomUUID();
+              const messagePayload: CodexMessagePayload = {
+                type: 'message',
+                message: accumulatedResponse,
+                id: messageId,
+              };
+              session.sendCodexMessage(messagePayload);
+              accumulatedResponse = '';
+              isResponseInProgress = false;
+            }
+          } else if (msg.status === 'error') {
+            thinking = false;
+            session.keepAlive(thinking, 'remote');
+            accumulatedResponse = '';
+            isResponseInProgress = false;
+
+            const errorMessage = msg.detail || 'Unknown error';
+            messageBuffer.addMessage(`Error: ${errorMessage}`, 'status');
+            session.sendCodexMessage({
+              type: 'message',
+              message: `Error: ${errorMessage}`,
+              id: randomUUID(),
+            });
+          }
+          break;
+
+        case 'tool-call':
+          const toolArgs = msg.args ? JSON.stringify(msg.args).substring(0, 100) : '';
+          logger.debug(`[opencode] Tool call received: ${msg.toolName} (${msg.callId})`);
+          messageBuffer.addMessage(`Executing: ${msg.toolName}${toolArgs ? ` ${toolArgs}...` : ''}`, 'tool');
+          session.sendCodexMessage({
+            type: 'tool-call',
+            name: msg.toolName,
+            callId: msg.callId,
+            input: msg.args,
+            id: randomUUID(),
+          });
+          break;
+
+        case 'tool-result':
+          const isError = msg.result && typeof msg.result === 'object' && 'error' in msg.result;
+          const resultText = typeof msg.result === 'string'
+            ? msg.result.substring(0, 200)
+            : JSON.stringify(msg.result).substring(0, 200);
+          const truncatedResult = resultText + (typeof msg.result === 'string' && msg.result.length > 200 ? '...' : '');
+
+          logger.debug(`[opencode] ${isError ? '❌' : '✅'} Tool result received: ${msg.toolName} (${msg.callId})`);
+
+          if (isError) {
+            const errorMsg = (msg.result as any).error || 'Tool call failed';
+            messageBuffer.addMessage(`Error: ${errorMsg}`, 'status');
+          } else {
+            messageBuffer.addMessage(`Result: ${truncatedResult}`, 'result');
+          }
+
+          session.sendCodexMessage({
+            type: 'tool-call-result',
+            callId: msg.callId,
+            output: msg.result,
+            id: randomUUID(),
+          });
+          break;
+
+        case 'permission-request':
+          session.sendCodexMessage({
+            type: 'permission-request',
+            permissionId: msg.id,
+            reason: msg.reason,
+            payload: msg.payload,
+            id: randomUUID(),
+          });
+          break;
+
+        default:
+          // Handle other message types
+          break;
+      }
+    });
+  }
+
+  let first = true;
+
+  try {
+    let currentModeHash: string | null = null;
+    let pending: { message: string; mode: OpenCodeMode; isolate: boolean; hash: string } | null = null;
+
+    // Save original model and set new model if specified
+    const originalModel = await readOpenCodeModel();
+
+    try {
+      if (currentModel) {
+        logger.debug('[OpenCode] Setting model in config:', currentModel);
+        await writeOpenCodeModel(currentModel);
+      }
+
+      // Main loop
+      while (!shouldExit) {
+        let message: { message: string; mode: OpenCodeMode; isolate: boolean; hash: string } | null = pending;
+        pending = null;
+
+        if (!message) {
+          logger.debug('[opencode] Main loop: waiting for messages from queue...');
+          const waitSignal = abortController.signal;
+          const batch = await messageQueue.waitForMessagesAndGetAsString(waitSignal);
+          if (!batch) {
+            if (waitSignal.aborted && !shouldExit) {
+              logger.debug('[opencode] Main loop: wait aborted, continuing...');
+              continue;
+            }
+            logger.debug('[opencode] Main loop: no batch received, breaking...');
+            break;
+          }
+          logger.debug(`[opencode] Main loop: received message from queue (length: ${batch.message.length})`);
+          message = batch;
+        }
+
+        if (!message) {
+          break;
+        }
+
+        currentModeHash = message.hash;
+        const userMessageToShow = message.message;
+        messageBuffer.addMessage(userMessageToShow, 'user');
+
+        try {
+          if (first || !wasSessionCreated) {
+            if (!opencodeBackend) {
+              opencodeBackend = createOpenCodeBackend({
+                cwd: opts.cwd || process.cwd(),
+                mcpServers,
+                permissionHandler,
+                model: message.mode.model,
+              });
+
+              setupOpenCodeMessageHandler(opencodeBackend);
+            }
+
+            if (!acpSessionId) {
+              logger.debug('[opencode] Starting ACP session...');
+              updatePermissionMode(message.mode.permissionMode || 'default');
+              const { sessionId } = await opencodeBackend.startSession();
+              acpSessionId = sessionId;
+              logger.debug(`[opencode] ACP session started: ${acpSessionId}`);
+              wasSessionCreated = true;
+              currentModeHash = message.hash;
+            }
+          }
+
+          if (!acpSessionId) {
+            throw new Error('ACP session not started');
+          }
+
+          accumulatedResponse = '';
+          isResponseInProgress = false;
+
+          if (!opencodeBackend || !acpSessionId) {
+            throw new Error('OpenCode backend or session not initialized');
+          }
+
+          const promptToSend = message.message;
+          logger.debug(`[opencode] Sending prompt (length: ${promptToSend.length})`);
+          await opencodeBackend.sendPrompt(acpSessionId, promptToSend);
+          logger.debug('[opencode] Prompt sent successfully');
+
+          if (first) {
+            first = false;
+          }
+        } catch (error) {
+          logger.debug('[opencode] Error in opencode session:', error);
+          const isAbortError = error instanceof Error && error.name === 'AbortError';
+
+          if (isAbortError) {
+            messageBuffer.addMessage('Aborted by user', 'status');
+            session.sendSessionEvent({ type: 'message', message: 'Aborted by user' });
+          } else {
+            let errorMsg = 'Process error occurred';
+            if (error instanceof Error) {
+              errorMsg = error.message;
+            }
+            messageBuffer.addMessage(errorMsg, 'status');
+            session.sendCodexMessage({
+              type: 'message',
+              message: errorMsg,
+              id: randomUUID(),
+            });
+          }
+        } finally {
+          permissionHandler.reset();
+          thinking = false;
+          session.keepAlive(thinking, 'remote');
+          emitReadyIfIdle();
+        }
+      }
+    } finally {
+      // Restore original model if we changed it
+      if (currentModel && originalModel !== undefined) {
+        try {
+          await writeOpenCodeModel(originalModel);
+          logger.debug('[OpenCode] Restored original model:', originalModel);
+        } catch (error) {
+          logger.warn('[OpenCode] Failed to restore original model:', error);
+        }
       }
     }
+
+  } finally {
+    // Clean up resources
+    logger.debug('[opencode]: Final cleanup start');
+    try {
+      session.sendSessionDeath();
+      await session.flush();
+      await session.close();
+    } catch (e) {
+      logger.debug('[opencode]: Error while closing session', e);
+    }
+
+    if (opencodeBackend) {
+      await opencodeBackend.dispose();
+    }
+
+    happyServer.stop();
+
+    if (process.stdin.isTTY) {
+      try { process.stdin.setRawMode(false); } catch { /* ignore */ }
+    }
+    if (hasTTY) {
+      try { process.stdin.pause(); } catch { /* ignore */ }
+    }
+
+    clearInterval(keepAliveInterval);
+    if (inkInstance) {
+      inkInstance.unmount();
+    }
+    messageBuffer.clear();
+
+    logger.debug('[opencode]: Final cleanup completed');
   }
 }
 
@@ -125,4 +629,18 @@ export async function isOpenCodeInstalled(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Options for running OpenCode (legacy, for backward compatibility)
+ */
+export interface RunOpenCodeOptions {
+  /** Working directory */
+  cwd: string;
+
+  /** Model to use (e.g., 'anthropic/claude-sonnet-4-20250514', 'gpt-4o') */
+  model?: string;
+
+  /** Initial prompt to send */
+  initialPrompt?: string;
 }
