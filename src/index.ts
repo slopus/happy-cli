@@ -238,6 +238,67 @@ import { execFileSync } from 'node:child_process'
       process.exit(1)
     }
     return;
+  } else if (subcommand === 'opencode') {
+    // Handle opencode command (ACP-based agent)
+    try {
+      const { runOpenCode, isOpenCodeInstalled } = await import('@/opencode');
+
+      // Check if OpenCode is installed
+      const installed = await isOpenCodeInstalled();
+      if (!installed) {
+        console.error(chalk.red('Error: OpenCode is not installed or not in PATH.'));
+        console.error(chalk.yellow('Install with: curl -fsSL https://opencode.ai/install | bash'));
+        process.exit(1);
+      }
+
+      // Parse arguments
+      let model: string | undefined = undefined;
+      let cwd: string = process.cwd();
+      let initialPrompt: string | undefined = undefined;
+      let startedBy: 'daemon' | 'terminal' | undefined = undefined;
+
+      for (let i = 1; i < args.length; i++) {
+        if ((args[i] === '-m' || args[i] === '--model') && args[i + 1]) {
+          model = args[++i];
+        } else if ((args[i] === '-c' || args[i] === '--cwd') && args[i + 1]) {
+          cwd = args[++i];
+        } else if ((args[i] === '-p' || args[i] === '--prompt') && args[i + 1]) {
+          initialPrompt = args[++i];
+        } else if (args[i] === '--started-by') {
+          startedBy = args[++i] as 'daemon' | 'terminal';
+        }
+      }
+
+      const {
+        credentials
+      } = await authAndSetupMachineIfNeeded();
+
+      // Auto-start daemon for opencode (same as claude/gemini)
+      logger.debug('Ensuring Happy background service is running & matches our version...');
+      if (!(await isDaemonRunningCurrentlyInstalledHappyVersion())) {
+        logger.debug('Starting Happy background service...');
+        const daemonProcess = spawnHappyCLI(['daemon', 'start-sync'], {
+          detached: true,
+          stdio: 'ignore',
+          env: process.env
+        });
+        daemonProcess.unref();
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+
+      await runOpenCode({
+        cwd,
+        model,
+        initialPrompt,
+      });
+    } catch (error) {
+      console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
+      if (process.env.DEBUG) {
+        console.error(error)
+      }
+      process.exit(1)
+    }
+    return;
   } else if (subcommand === 'logout') {
     // Keep for backward compatibility - redirect to auth logout
     console.log(chalk.yellow('Note: "happy logout" is deprecated. Use "happy auth logout" instead.\n'));
@@ -444,6 +505,7 @@ ${chalk.bold('Usage:')}
   happy auth              Manage authentication
   happy codex             Start Codex mode
   happy gemini            Start Gemini mode (ACP)
+  happy opencode          Start OpenCode mode (ACP)
   happy connect           Connect AI vendor API keys
   happy notify            Send push notification
   happy daemon            Manage background service that allows
