@@ -68,7 +68,7 @@ type ExtendedRequestPermissionRequest = RequestPermissionRequest & {
  */
 type ExtendedSessionNotification = SessionNotification & {
   update?: {
-    sessionUpdate?: string;
+    sessionUpdate?: 'plan' | 'user_message_chunk' | 'agent_message_chunk' | 'agent_thought_chunk' | 'tool_call' | 'tool_call_update' | 'available_commands_update' | 'current_mode_update' | 'permission.asked';
     toolCallId?: string;
     status?: string;
     kind?: string | unknown;
@@ -83,6 +83,11 @@ type ExtendedSessionNotification = SessionNotification & {
     };
     plan?: unknown;
     thinking?: unknown;
+    outcome?: {
+      outcome?: string;
+      optionId?: string;
+      [key: string]: unknown;
+    };
     [key: string]: unknown;
   };
 }
@@ -1123,6 +1128,66 @@ export class AcpSdkBackend implements AgentBackend {
       }
     }
 
+    // Handle permission.asked - user selected a permission option from OpenCode UI
+    if (sessionUpdateType === ('permission.asked' as any)) {
+      const toolCallId = (update as any).toolCallId;
+      const outcome = (update as any).outcome;
+      
+      logger.debug(`[AcpSdkBackend] Received permission.asked notification:`, JSON.stringify({
+        toolCallId,
+        outcome,
+        hasOutcome: !!outcome,
+      }, null, 2));
+
+      if (toolCallId && outcome && typeof outcome === 'object' && 'outcome' in outcome) {
+        const outcomeObj = outcome as unknown as { outcome: string; optionId?: string };
+        
+        if (outcomeObj.outcome === 'selected' && outcomeObj.optionId) {
+          const optionId = outcomeObj.optionId;
+          
+          // Map optionId to permission mode
+          let mode: 'once' | 'always' | 'reject' | null = null;
+          if (optionId === 'proceed_once' || optionId.includes('once')) {
+            mode = 'once';
+          } else if (optionId === 'proceed_always' || optionId.includes('always')) {
+            mode = 'always';
+          } else if (optionId === 'cancel' || optionId.includes('cancel') || optionId.includes('reject')) {
+            mode = 'reject';
+          }
+
+          if (mode) {
+            // Get the real tool name from the toolCallId
+            const toolName = this.toolCallIdToNameMap.get(toolCallId);
+            
+            if (toolName) {
+              // Store the permission mode for this tool
+              this.permissionModes.set(toolName, {
+                mode,
+                setAt: Date.now(),
+              });
+              
+              logger.debug(`[AcpSdkBackend] Stored permission mode for ${toolName}: ${mode} (from optionId: ${optionId})`);
+              
+              // Emit event so UI can display permission state change
+              this.emit({
+                type: 'event',
+                name: 'permission',
+                payload: {
+                  toolName,
+                  mode,
+                  toolCallId,
+                },
+              });
+            } else {
+              logger.debug(`[AcpSdkBackend] Could not find tool name for toolCallId ${toolCallId} - cannot store permission mode`);
+            }
+          } else {
+            logger.debug(`[AcpSdkBackend] Could not map optionId ${optionId} to a permission mode`);
+          }
+        }
+      }
+    }
+
     // Handle tool_call (direct tool call, not just tool_call_update)
     if (sessionUpdateType === 'tool_call') {
       const toolCallId = update.toolCallId;
@@ -1234,6 +1299,7 @@ export class AcpSdkBackend implements AgentBackend {
         sessionUpdateType !== 'tool_call_update' &&
         sessionUpdateType !== 'agent_thought_chunk' &&
         sessionUpdateType !== 'tool_call' &&
+        sessionUpdateType !== ('permission.asked' as any) &&
         !update.messageChunk &&
         !update.plan &&
         !update.thinking) {
