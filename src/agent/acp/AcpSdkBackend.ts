@@ -135,6 +135,9 @@ export interface AcpSdkBackendOptions {
   
   /** Optional session ID to resume an existing session */
   resumeSessionId?: string;
+
+  /** Session mode for this Happy session */
+  sessionMode?: 'default' | 'yolo' | 'safe';
 }
 
 /**

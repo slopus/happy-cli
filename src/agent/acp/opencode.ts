@@ -27,6 +27,9 @@ export interface OpenCodeBackendOptions extends AgentFactoryOptions {
 
   /** Optional session ID to resume an existing session */
   resumeSessionId?: string;
+
+  /** Session mode for this Happy session */
+  sessionMode?: 'default' | 'yolo' | 'safe';
 }
 
 /**
@@ -58,6 +61,7 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions): AgentBac
     mcpServers: options.mcpServers,
     permissionHandler: options.permissionHandler,
     resumeSessionId: options.resumeSessionId,
+    sessionMode: options.sessionMode,
   };
 
   logger.debug('[OpenCode] Creating ACP SDK backend with options:', {
