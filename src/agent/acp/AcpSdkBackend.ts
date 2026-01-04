@@ -231,7 +231,16 @@ export class AcpSdkBackend implements AgentBackend {
   /** Timeout for emitting 'idle' status after last message chunk */
   private idleTimeout: NodeJS.Timeout | null = null;
 
+  /** Track current session mode for permission decisions */
+  private sessionMode?: 'default' | 'yolo' | 'safe';
+
   constructor(private options: AcpSdkBackendOptions) {
+    this.sessionMode = options.sessionMode;
+  }
+
+  /** Get the current session mode */
+  getSessionMode(): 'default' | 'yolo' | 'safe' | undefined {
+    return this.sessionMode;
   }
 
   /**
