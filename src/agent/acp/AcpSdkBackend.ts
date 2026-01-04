@@ -234,6 +234,12 @@ export class AcpSdkBackend implements AgentBackend {
   /** Track current session mode for permission decisions */
   private sessionMode?: 'default' | 'yolo' | 'safe';
 
+  /** Track permission mode per tool type */
+  private permissionModes = new Map<string, {
+    mode: 'once' | 'always' | 'reject';
+    setAt: number;
+  }>();
+
   constructor(private options: AcpSdkBackendOptions) {
     this.sessionMode = options.sessionMode;
   }
@@ -241,6 +247,91 @@ export class AcpSdkBackend implements AgentBackend {
   /** Get the current session mode */
   getSessionMode(): 'default' | 'yolo' | 'safe' | undefined {
     return this.sessionMode;
+  }
+
+  /**
+   * Check if a tool is safe (read-only operations)
+   * Safe tools don't modify state, delete files, or execute arbitrary commands
+   */
+  private isSafeTool(toolName: string): boolean {
+    const safeTools = new Set([
+      'read_file',
+      'list_files',
+      'list_directories',
+      'search_files',
+      'grep',
+      'get_file_info',
+      'directory_tree',
+      'find',
+      'codebase_investigator',
+      'codebase_search',
+      'ask',
+      'completion',
+      'context_files',
+      'get_cwd',
+      'list_allowed_directories',
+      'workspace',
+    ]);
+
+    return safeTools.has(toolName);
+  }
+
+  /**
+   * Make a permission decision based on stored modes, session mode, and handler
+   */
+  private async makePermissionDecision(
+    toolCallId: string,
+    toolName: string,
+    input: unknown
+  ): Promise<{ decision: 'approved' | 'approved_for_session' | 'denied' | 'abort' }> {
+    const storedMode = this.permissionModes.get(toolName);
+
+    if (storedMode) {
+      const decision = this.mapPermissionModeToDecision(storedMode.mode);
+      logger.debug(`[AcpSdkBackend] Using stored permission mode for ${toolName}: ${storedMode.mode} -> ${decision}`);
+
+      if (storedMode.mode === 'once') {
+        this.permissionModes.delete(toolName);
+        logger.debug(`[AcpSdkBackend] Cleared 'once' mode for ${toolName} after single use`);
+      }
+
+      return { decision };
+    }
+
+    if (this.sessionMode === 'yolo') {
+      logger.debug(`[AcpSdkBackend] Session mode is 'yolo' - auto-approving ${toolName}`);
+      return { decision: 'approved' };
+    }
+
+    if (this.sessionMode === 'safe') {
+      const isSafe = this.isSafeTool(toolName);
+      const decision = isSafe ? 'approved' : 'denied';
+      logger.debug(`[AcpSdkBackend] Session mode is 'safe' - ${toolName} is ${isSafe ? 'safe' : 'unsafe'}, decision: ${decision}`);
+      return { decision };
+    }
+
+    if (this.options.permissionHandler) {
+      return await this.options.permissionHandler.handleToolCall(
+        toolCallId,
+        toolName,
+        input
+      );
+    }
+
+    return { decision: 'denied' };
+  }
+
+  /**
+   * Map permission mode to decision type
+   */
+  private mapPermissionModeToDecision(mode: 'once' | 'always' | 'reject'): 'approved' | 'approved_for_session' | 'denied' | 'abort' {
+    const mapping: Record<string, 'approved' | 'approved_for_session' | 'denied' | 'abort'> = {
+      'once': 'approved',
+      'always': 'approved_for_session',
+      'reject': 'denied',
+    };
+
+    return mapping[mode] ?? 'denied';
   }
 
   /**
@@ -515,93 +606,40 @@ export class AcpSdkBackend implements AgentBackend {
           this.toolCallCountSincePrompt++;
           
           const options = extendedParams.options || [];
-          
-          // Log permission request for debugging (include full params to understand structure)
-          logger.debug(`[AcpSdkBackend] Permission request: tool=${toolName}, toolCallId=${toolCallId}, input=`, JSON.stringify(input));
-          logger.debug(`[AcpSdkBackend] Permission request params structure:`, JSON.stringify({
-            hasToolCall: !!toolCall,
-            toolCallKind: toolCall?.kind,
-            toolCallId: toolCall?.id,
-            paramsKind: extendedParams.kind,
-            paramsKeys: Object.keys(params),
-          }, null, 2));
-          
-          // Emit permission request event for UI/mobile handling
-          this.emit({
-            type: 'permission-request',
-            id: permissionId,
-            reason: toolName,
-            payload: {
-              ...params,
-              permissionId,
-              toolCallId,
-              toolName,
-              input,
-              options: options.map((opt) => ({
-                id: opt.optionId,
-                name: opt.name,
-                kind: opt.kind,
-              })),
-            },
-          });
-          
-          // Use permission handler if provided, otherwise auto-approve
-          if (this.options.permissionHandler) {
-            try {
-              const result = await this.options.permissionHandler.handleToolCall(
-                toolCallId,
-                toolName,
-                input
+
+          const permissionResult = await this.makePermissionDecision(toolCallId, toolName, input);
+
+          if (permissionResult.decision !== 'denied' && permissionResult.decision !== 'abort') {
+            const result = permissionResult;
+
+            let optionId = 'cancel';
+
+            if (result.decision === 'approved' || result.decision === 'approved_for_session') {
+              const proceedOnceOption = options.find((opt: any) =>
+                opt.optionId === 'proceed_once' || opt.name?.toLowerCase().includes('once')
               );
-              
-              // Map permission decision to ACP response
-              // ACP uses optionId from the request options
-              let optionId = 'cancel'; // Default to cancel/deny
-              
-              if (result.decision === 'approved' || result.decision === 'approved_for_session') {
-                // Find the appropriate optionId from the request options
-                // Look for 'proceed_once' or 'proceed_always' in options
-                const proceedOnceOption = options.find((opt: any) => 
-                  opt.optionId === 'proceed_once' || opt.name?.toLowerCase().includes('once')
-                );
-                const proceedAlwaysOption = options.find((opt: any) => 
-                  opt.optionId === 'proceed_always' || opt.name?.toLowerCase().includes('always')
-                );
-                
-                if (result.decision === 'approved_for_session' && proceedAlwaysOption) {
-                  optionId = proceedAlwaysOption.optionId || 'proceed_always';
-                } else if (proceedOnceOption) {
-                  optionId = proceedOnceOption.optionId || 'proceed_once';
-                } else if (options.length > 0) {
-                  // Fallback to first option if no specific match
-                  optionId = options[0].optionId || 'proceed_once';
-                }
-              } else {
-                // Denied or aborted - find cancel option
-                const cancelOption = options.find((opt: any) => 
-                  opt.optionId === 'cancel' || opt.name?.toLowerCase().includes('cancel')
-                );
-                if (cancelOption) {
-                  optionId = cancelOption.optionId || 'cancel';
-                }
+              const proceedAlwaysOption = options.find((opt: any) =>
+                opt.optionId === 'proceed_always' || opt.name?.toLowerCase().includes('always')
+              );
+
+              if (result.decision === 'approved_for_session' && proceedAlwaysOption) {
+                optionId = proceedAlwaysOption.optionId || 'proceed_always';
+              } else if (proceedOnceOption) {
+                optionId = proceedOnceOption.optionId || 'proceed_once';
+              } else if (options.length > 0) {
+                optionId = options[0].optionId || 'proceed_once';
               }
-              
-              return { outcome: { outcome: 'selected', optionId } };
-            } catch (error) {
-              // Log to file only, not console
-              logger.debug('[AcpSdkBackend] Error in permission handler:', error);
-              // Fallback to deny on error
-              return { outcome: { outcome: 'selected', optionId: 'cancel' } };
             }
+
+            return { outcome: { outcome: 'selected', optionId } };
           }
-          
-          // Auto-approve with 'proceed_once' if no permission handler
-          // optionId must match one from the request options (e.g., 'proceed_once', 'proceed_always', 'cancel')
-          const proceedOnceOption = options.find((opt) => 
-            opt.optionId === 'proceed_once' || (typeof opt.name === 'string' && opt.name.toLowerCase().includes('once'))
+
+          const cancelOption = options.find((opt: any) =>
+            opt.optionId === 'cancel' || opt.name?.toLowerCase().includes('cancel')
           );
-          const defaultOptionId = proceedOnceOption?.optionId || (options.length > 0 && options[0].optionId ? options[0].optionId : 'proceed_once');
-          return { outcome: { outcome: 'selected', optionId: defaultOptionId } };
+          const optionId = cancelOption?.optionId || 'cancel';
+
+          return { outcome: { outcome: 'selected', optionId } };
         },
       };
 
