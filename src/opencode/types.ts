@@ -18,6 +18,9 @@ export interface OpenCodeMode {
 
   /** Model to use (e.g., 'anthropic/claude-sonnet-4-20250514') */
   model?: string;
+
+  /** Session mode for ACP permission management */
+  sessionMode?: 'default' | 'yolo' | 'safe';
 }
 
 /**

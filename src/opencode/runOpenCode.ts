@@ -61,6 +61,8 @@ export async function runOpenCode(opts: {
   resumeSessionId?: string;
   /** Force new session even if previous exists */
   forceNewSession?: boolean;
+  /** Session mode for ACP permission management */
+  sessionMode?: 'default' | 'yolo' | 'safe';
 }): Promise<void> {
   //
   // Define session
@@ -150,11 +152,13 @@ export async function runOpenCode(opts: {
   const messageQueue = new MessageQueue2<OpenCodeMode>((mode) => hashObject({
     permissionMode: mode.permissionMode,
     model: mode.model,
+    sessionMode: mode.sessionMode,
   }));
 
   // Track current overrides to apply per message
   let currentPermissionMode: PermissionMode | undefined = undefined;
   let currentModel: string | undefined = opts.model;
+  let currentSessionMode: 'default' | 'yolo' | 'safe' | undefined = opts.sessionMode;
 
   session.onUserMessage((message) => {
     // Resolve permission mode
@@ -190,6 +194,7 @@ export async function runOpenCode(opts: {
     const mode: OpenCodeMode = {
       permissionMode: messagePermissionMode || 'default',
       model: messageModel,
+      sessionMode: currentSessionMode ?? 'default',
     };
     messageQueue.push(message.content.text, mode);
   });
