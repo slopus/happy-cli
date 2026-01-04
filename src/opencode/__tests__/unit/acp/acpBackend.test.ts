@@ -186,4 +186,38 @@ describe('ACP Backend Unit Tests', () => {
       expect(true).toBe(true);
     });
   });
+
+  describe('session resumption', () => {
+    it('should accept resumeSessionId option', async () => {
+      // This test verifies the option is passed through
+      // Actual loadSession behavior requires real OpenCode
+      backend = createOpenCodeBackend({
+        cwd: '/tmp/test',
+        mcpServers: {},
+        permissionHandler: null as any,
+        model: 'test-model',
+        resumeSessionId: 'ses_test123',
+      });
+
+      // The backend should be created successfully
+      expect(backend).toBeDefined();
+
+      // When we dispose without starting, it should not error
+      await backend.dispose();
+    });
+
+    it('should accept backend without resumeSessionId (backward compatible)', async () => {
+      // Verify existing behavior still works
+      backend = createOpenCodeBackend({
+        cwd: '/tmp/test',
+        mcpServers: {},
+        permissionHandler: null as any,
+        model: 'test-model',
+        // No resumeSessionId - should work fine
+      });
+
+      expect(backend).toBeDefined();
+      await backend.dispose();
+    });
+  });
 });

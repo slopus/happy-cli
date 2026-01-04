@@ -24,6 +24,9 @@ export interface OpenCodeBackendOptions extends AgentFactoryOptions {
 
   /** Optional permission handler for tool approval */
   permissionHandler?: AcpPermissionHandler;
+
+  /** Optional session ID to resume an existing session */
+  resumeSessionId?: string;
 }
 
 /**
@@ -54,6 +57,7 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions): AgentBac
     env: options.env,
     mcpServers: options.mcpServers,
     permissionHandler: options.permissionHandler,
+    resumeSessionId: options.resumeSessionId,
   };
 
   logger.debug('[OpenCode] Creating ACP SDK backend with options:', {
