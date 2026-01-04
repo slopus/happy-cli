@@ -47,6 +47,7 @@ OpenCode support is **~90% complete** compared to Claude/Codex implementations. 
 | Special Commands | ✅ | ❌ | ❌ | **MISSING** |
 | Hook Server | ✅ | ❌ | ❌ | **MISSING** |
 | Caffeinate (prevent sleep) | ✅ | ✅ | ✅ | Complete |
+| Session Resumption | ❌ | ✅ | ✅ | Complete |
 | **Message Processing** |
 | Text Delta Streaming | ✅ | ✅ | ✅ | Complete |
 | Tool Call Display | ✅ | ✅ | ✅ | Complete |
@@ -149,6 +150,17 @@ OpenCode support is **~90% complete** compared to Claude/Codex implementations. 
 
 **Implementation:**
 - Added `startCaffeinate()` call after keepAlive setup in `runOpenCode.ts`
+
+### 7. Session Resumption
+**Status:** COMPLETE ✅
+
+OpenCode sessions can be resumed across CLI restarts:
+
+- **Auto-resume**: When starting in a directory with a previous session (<7 days old), it resumes automatically
+- **Explicit resume**: Use `--resume-session <id>` to resume a specific session
+- **Force new**: Use `--force-new-session` to skip auto-resume
+
+Sessions are stored in `~/.happy-dev/opencode-sessions.json`.
 
 ## Recommendations
 
