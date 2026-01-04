@@ -4,7 +4,7 @@ This document compares the OpenCode integration with Claude Code and Codex imple
 
 ## Summary
 
-OpenCode support is **~80% complete** compared to Claude/Codex implementations. The core functionality is in place, but some advanced features are missing.
+OpenCode support is **~90% complete** compared to Claude/Codex implementations. The core functionality and mobile UX enrichment (reasoning processor) are in place, with only minor advanced features missing.
 
 ## Feature Comparison Matrix
 
@@ -42,11 +42,11 @@ OpenCode support is **~80% complete** compared to Claude/Codex implementations. 
 | Ready Event | ✅ | ✅ | ✅ | Complete |
 | Push Notifications | ✅ | ✅ | ✅ | Complete |
 | **Advanced Features** |
-| Reasoning Processor | ❌ | ✅ | ❌ | **MISSING** |
-| Diff Processor | ❌ | ✅ | ❌ | **MISSING** |
+| Reasoning Processor | ❌ | ✅ | ✅ | Complete |
+| Diff Processor | ❌ | ✅ | ❌ | **MISSING** (ACP may not emit diff events) |
 | Special Commands | ✅ | ❌ | ❌ | **MISSING** |
 | Hook Server | ✅ | ❌ | ❌ | **MISSING** |
-| Caffeinate (prevent sleep) | ✅ | ✅ | Partial | **MISSING startCaffeinate** |
+| Caffeinate (prevent sleep) | ✅ | ✅ | ✅ | Complete |
 | **Message Processing** |
 | Text Delta Streaming | ✅ | ✅ | ✅ | Complete |
 | Tool Call Display | ✅ | ✅ | ✅ | Complete |
@@ -67,22 +67,23 @@ OpenCode support is **~80% complete** compared to Claude/Codex implementations. 
 ## Missing Features Detail
 
 ### 1. Reasoning Processor
-**Status:** NOT IMPLEMENTED
+**Status:** COMPLETE ✅
 
 **What it does:**
-- Processes streaming reasoning deltas
+- Processes streaming thinking events from ACP
 - Identifies reasoning sections with `**[Title]**` format
 - Sends `CodexReasoning` tool calls for titled reasoning
 - Handles reasoning completion and abort
+- Forwards thinking events to mobile app
+- Shows thinking preview in terminal UI
 
-**Impact:** Medium - Users won't see structured reasoning output in the mobile app
-
-**Implementation complexity:** Medium
-- File: `src/codex/utils/reasoningProcessor.ts` (~260 lines)
-- Integration point: In message handler, process `agent_reasoning_delta` events
+**Implementation:**
+- File: `src/opencode/utils/reasoningProcessor.ts` (~280 lines)
+- Integration: In `runOpenCode.ts` message handler, processes `event` type with `name === 'thinking'`
+- Tests: 16 unit tests + 6 integration tests
 
 ### 2. Diff Processor
-**Status:** NOT IMPLEMENTED
+**Status:** NOT IMPLEMENTED (May not be feasible)
 
 **What it does:**
 - Tracks `unified_diff` field in `turn_diff` messages
@@ -91,7 +92,12 @@ OpenCode support is **~80% complete** compared to Claude/Codex implementations. 
 
 **Impact:** Low-Medium - Mobile app won't see structured diff information
 
-**Implementation complexity:** Low
+**Note:** OpenCode via ACP doesn't emit `turn_diff` events like Codex MCP does. Options:
+1. Skip (files still work, just no mobile diff view)
+2. Track file writes via tool-result events and synthesize diffs (complex)
+3. Add file watcher (overkill)
+
+**Implementation complexity:** Low if events exist, High otherwise
 - File: `src/codex/utils/diffProcessor.ts` (~100 lines)
 - Integration point: In message handler, process `turn_diff` events
 
@@ -135,63 +141,50 @@ OpenCode support is **~80% complete** compared to Claude/Codex implementations. 
 - Pass to `createOpenCodeBackend`
 
 ### 6. Caffeinate (prevent sleep)
-**Status:** PARTIAL
+**Status:** COMPLETE ✅
 
 **What it does:**
-- `stopCaffeinate()` is called
-- `startCaffeinate()` is NOT called at startup
+- `startCaffeinate()` called at startup to prevent system sleep
+- `stopCaffeinate()` called on cleanup
 
-**Impact:** Low - System might sleep during long-running tasks
-
-**Implementation complexity:** Very Low
-- Add `startCaffeinate()` call at startup
+**Implementation:**
+- Added `startCaffeinate()` call after keepAlive setup in `runOpenCode.ts`
 
 ## Recommendations
 
-### Priority 1: High Impact, Low Complexity
+### Priority 1: Completed
 
-1. **Add startCaffeinate()**
-   - 1 line change
+1. ~~**Add startCaffeinate()**~~ ✅ Done
    - Prevents system sleep during long tasks
 
-2. **Add Diff Processor**
-   - ~100 lines
-   - Better mobile app experience
+### Priority 2: Low Impact
 
-### Priority 2: Medium Impact, Medium Complexity
-
-3. **Add Reasoning Processor**
-   - ~260 lines
-   - Shows reasoning in mobile app
-
-### Priority 3: Low Impact
-
-4. **Add Special Commands**
+2. **Add Special Commands**
    - Nice to have for CLI users
 
-5. **Add Custom Env Vars/Args**
+3. **Add Custom Env Vars/Args**
    - Advanced users only
 
-6. **Add Hook Server**
+4. **Add Hook Server**
    - Git workflow integration
+
+### Completed
+
+- ✅ **Reasoning Processor** - Shows structured reasoning in mobile app
+  - Implemented in `src/opencode/utils/reasoningProcessor.ts`
+  - Wired into `runOpenCode.ts` message handler
+  - 22 tests (16 unit + 6 integration)
 
 ## Implementation Order
 
 1. **Quick Win (5 minutes):**
    - Add `startCaffeinate()` call in `runOpenCode.ts`
 
-2. **Short Task (1-2 hours):**
-   - Port `DiffProcessor` from Codex
-   - Integrate into message handler
-
-3. **Medium Task (2-4 hours):**
-   - Port `ReasoningProcessor` from Codex
-   - Integrate into message handler
-
-4. **Optional Enhancements:**
+2. **Optional Enhancements:**
    - Special commands parsing
    - Custom env vars/args
    - Hook server support
+   - Diff processor (if ACP adds `turn_diff` events)
 
 ## File Structure Comparison
 
@@ -211,9 +204,10 @@ src/
 │       ├── reasoningProcessor.ts ❌ OpenCode missing
 │       └── diffProcessor.ts      ❌ OpenCode missing
 └── opencode/
-    ├── runOpenCode.ts            ✅ Core complete, missing extras
+    ├── runOpenCode.ts            ✅ Core complete with reasoning
     ├── utils/
     │   ├── permissionHandler.ts  ✅ Complete
+    │   ├── reasoningProcessor.ts ✅ Complete (ported from Codex)
     │   └── config.ts             ✅ Complete
     └── types.ts                  ✅ Complete
 ```
@@ -224,13 +218,13 @@ src/
 |-------|-----------|-------------|-------------|---------------|
 | Claude | ~400 | ~2000 | ~2400 | ✅ Yes |
 | Codex | ~600 | ~400 | ~1000 | ✅ Yes |
-| OpenCode | ~650 | ~200 | ~850 | ✅ Yes (59 tests) |
+| OpenCode | ~700 | ~500 | ~1200 | ✅ Yes (81 tests) |
 
 ## Conclusion
 
-OpenCode integration is **functionally complete** for core use cases. The missing features are primarily:
-1. Enhanced mobile app experience (reasoning/diff processors)
-2. Advanced workflow integration (hooks, special commands)
-3. System sleep prevention (easy fix)
+OpenCode integration is **functionally complete** for core use cases with enhanced mobile app experience. The remaining gaps are:
+1. System sleep prevention (easy fix - add `startCaffeinate()`)
+2. Diff processor (blocked on ACP not emitting `turn_diff` events)
+3. Advanced workflow integration (hooks, special commands)
 
 The implementation follows the same patterns as Codex, making it straightforward to add missing features when needed.

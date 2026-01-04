@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { hashObject } from '@/utils/deterministicJson';
 import type { OpenCodeMode } from '@/opencode/types';
+import { OpenCodeReasoningProcessor, type ReasoningOutput } from '@/opencode/utils/reasoningProcessor';
 
 describe('Message Flow Integration Tests', () => {
   let queue: MessageQueue2<OpenCodeMode>;
@@ -232,6 +233,132 @@ describe('Message Flow Integration Tests', () => {
       }
 
       expect(queue.size()).toBe(count);
+    });
+  });
+
+  describe('reasoning event flow', () => {
+    let reasoningProcessor: OpenCodeReasoningProcessor;
+    let messages: ReasoningOutput[];
+
+    beforeEach(() => {
+      messages = [];
+      reasoningProcessor = new OpenCodeReasoningProcessor((msg) => messages.push(msg));
+    });
+
+    it('should process thinking events and emit tool calls for titled reasoning', () => {
+      // Simulate ACP thinking event chunks
+      const thinkingChunks = [
+        '**Analyzing the codebase',
+        '**\n',
+        'Looking at the file structure...\n',
+        'Found relevant files.'
+      ];
+
+      thinkingChunks.forEach(chunk => {
+        reasoningProcessor.processChunk(chunk);
+      });
+
+      // Tool call should be emitted when title is complete
+      expect(messages.length).toBe(1);
+      expect(messages[0].type).toBe('tool-call');
+      if (messages[0].type === 'tool-call') {
+        expect(messages[0].name).toBe('CodexReasoning');
+        expect(messages[0].input.title).toBe('Analyzing the codebase');
+      }
+
+      // Complete on idle
+      reasoningProcessor.complete();
+
+      // Should have tool call result now
+      expect(messages.length).toBe(2);
+      expect(messages[1].type).toBe('tool-call-result');
+    });
+
+    it('should emit reasoning message for untitled thinking', () => {
+      const thinkingChunks = [
+        'Let me think about this...\n',
+        'The best approach would be to...'
+      ];
+
+      thinkingChunks.forEach(chunk => {
+        reasoningProcessor.processChunk(chunk);
+      });
+
+      reasoningProcessor.complete();
+
+      expect(messages.length).toBe(1);
+      expect(messages[0].type).toBe('reasoning');
+      if (messages[0].type === 'reasoning') {
+        expect(messages[0].message).toContain('Let me think about this');
+      }
+    });
+
+    it('should handle abort during reasoning', () => {
+      reasoningProcessor.processChunk('**Working on it');
+      reasoningProcessor.processChunk('**');
+      
+      // Tool call started
+      expect(messages.length).toBe(1);
+      
+      // Abort
+      reasoningProcessor.abort();
+
+      // Should emit canceled result
+      expect(messages.length).toBe(2);
+      expect(messages[1].type).toBe('tool-call-result');
+      if (messages[1].type === 'tool-call-result') {
+        expect(messages[1].output.status).toBe('canceled');
+      }
+    });
+
+    it('should reset between turns', () => {
+      // First turn
+      reasoningProcessor.processChunk('**First Turn**');
+      reasoningProcessor.processChunk(' content');
+      reasoningProcessor.complete();
+
+      expect(messages.length).toBe(2); // tool-call + tool-call-result
+
+      // Clear for next turn
+      messages = [];
+
+      // Second turn - processor should be reset
+      reasoningProcessor.processChunk('**Second Turn**');
+      reasoningProcessor.processChunk(' more content');
+      reasoningProcessor.complete();
+
+      expect(messages.length).toBe(2);
+      if (messages[0].type === 'tool-call') {
+        expect(messages[0].input.title).toBe('Second Turn');
+      }
+    });
+
+    it('should integrate with message flow simulation', () => {
+      // Simulate a complete message flow:
+      // 1. User sends message
+      // 2. Agent starts thinking (thinking events)
+      // 3. Agent completes (idle status)
+
+      const sentMessages: ReasoningOutput[] = [];
+      const processor = new OpenCodeReasoningProcessor((msg) => sentMessages.push(msg));
+
+      // Simulate thinking event from ACP
+      const thinkingPayload = { text: '**Planning the implementation**\nStep 1: Review requirements' };
+      if (thinkingPayload.text) {
+        processor.processChunk(thinkingPayload.text);
+      }
+
+      // Simulate idle status - complete reasoning
+      processor.complete();
+
+      // Verify messages sent to mobile
+      expect(sentMessages.length).toBe(2);
+      expect(sentMessages[0].type).toBe('tool-call');
+      expect(sentMessages[1].type).toBe('tool-call-result');
+      
+      if (sentMessages[0].type === 'tool-call') {
+        expect(sentMessages[0].name).toBe('CodexReasoning');
+      }
     });
   });
 });

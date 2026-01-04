@@ -28,7 +28,7 @@ import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { MessageBuffer } from '@/ui/ink/messageBuffer';
 import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
 import { registerKillSessionHandler } from '@/claude/registerKillSessionHandler';
-import { stopCaffeinate } from '@/utils/caffeinate';
+import { startCaffeinate, stopCaffeinate } from '@/utils/caffeinate';
 
 import { createOpenCodeBackend } from '@/agent/acp/opencode';
 import type { AgentBackend, AgentMessage } from '@/agent/AgentBackend';
@@ -42,6 +42,7 @@ import {
   hasIncompleteOptions,
   formatOptionsXml,
 } from './utils/optionsParser';
+import { OpenCodeReasoningProcessor } from './utils/reasoningProcessor';
 
 /**
  * Main entry point for the opencode command with ink UI
@@ -169,6 +170,12 @@ export async function runOpenCode(opts: {
     session.keepAlive(thinking, 'remote');
   }, 2000);
 
+  // Start caffeinate to prevent sleep on macOS during long-running tasks
+  const caffeinateStarted = startCaffeinate();
+  if (caffeinateStarted) {
+    logger.debug('[OpenCode] Sleep prevention enabled (macOS)');
+  }
+
   const sendReady = () => {
     session.sendSessionEvent({ type: 'ready' });
     try {
@@ -228,6 +235,7 @@ export async function runOpenCode(opts: {
     try {
       abortController.abort();
       messageQueue.reset();
+      reasoningProcessor.abort();
       if (opencodeBackend && acpSessionId) {
         await opencodeBackend.cancel(acpSessionId);
       }
@@ -348,6 +356,11 @@ export async function runOpenCode(opts: {
     permissionHandler.setPermissionMode(mode);
   };
 
+  // Create reasoning processor for handling thinking events
+  const reasoningProcessor = new OpenCodeReasoningProcessor((message) => {
+    session.sendCodexMessage(message);
+  });
+
   // Accumulate OpenCode response text
   let accumulatedResponse = '';
   let isResponseInProgress = false;
@@ -393,6 +406,9 @@ export async function runOpenCode(opts: {
           } else if (msg.status === 'idle' || msg.status === 'stopped') {
             thinking = false;
             session.keepAlive(thinking, 'remote');
+
+            // Complete reasoning processor when status becomes idle
+            reasoningProcessor.complete();
 
             if (isResponseInProgress && accumulatedResponse.trim()) {
               const messageId = randomUUID();
@@ -479,6 +495,41 @@ export async function runOpenCode(opts: {
             payload: msg.payload,
             id: randomUUID(),
           });
+          break;
+
+        case 'event':
+          // Handle thinking events from ACP backend
+          if (msg.name === 'thinking') {
+            const thinkingPayload = msg.payload as { text?: string } | undefined;
+            const thinkingText = (thinkingPayload && typeof thinkingPayload === 'object' && 'text' in thinkingPayload)
+              ? String(thinkingPayload.text || '')
+              : '';
+            
+            if (thinkingText) {
+              // Process thinking chunk through reasoning processor
+              // This will identify titled reasoning sections (**Title**) and convert them to tool calls
+              reasoningProcessor.processChunk(thinkingText);
+
+              // Log thinking chunks for debugging
+              logger.debug(`[opencode] 💭 Thinking chunk received: ${thinkingText.length} chars - Preview: ${thinkingText.substring(0, 100)}...`);
+
+              // Show thinking message in UI (truncated)
+              // For titled reasoning (starts with **), ReasoningProcessor will show it as tool call
+              // But we still show progress for long operations
+              if (!thinkingText.startsWith('**')) {
+                // Update existing "Thinking..." message or add new one for untitled reasoning
+                const thinkingPreview = thinkingText.substring(0, 100);
+                messageBuffer.updateLastMessage(`[Thinking] ${thinkingPreview}...`, 'system');
+              }
+
+              // Forward to mobile for UI feedback
+              session.sendCodexMessage({
+                type: 'thinking',
+                text: thinkingText,
+                id: randomUUID(),
+              });
+            }
+          }
           break;
 
         default:
@@ -599,6 +650,7 @@ export async function runOpenCode(opts: {
           }
         } finally {
           permissionHandler.reset();
+          reasoningProcessor.abort();
           thinking = false;
           session.keepAlive(thinking, 'remote');
           emitReadyIfIdle();
