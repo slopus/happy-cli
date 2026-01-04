@@ -351,6 +351,26 @@ export class AcpSdkBackend implements AgentBackend {
   }
 
   /**
+   * Handle tool call completion - cleanup tracking state
+   * @param callId - Tool call ID to clean up
+   */
+  private handleToolCallComplete(callId: string): void {
+    this.activeToolCalls.delete(callId);
+    this.toolCallStartTimes.delete(callId);
+    
+    const timeout = this.toolCallTimeouts.get(callId);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.toolCallTimeouts.delete(callId);
+    }
+    
+    const editEntry = this.activeEdits.get(callId);
+    if (editEntry && editEntry.path) {
+      this.activeEdits.delete(callId);
+    }
+  }
+
+  /**
    * Format diff between old and new text
    * Simple line-by-line diff for mobile app
    */
@@ -1017,9 +1037,7 @@ export class AcpSdkBackend implements AgentBackend {
               const durationStr = duration ? `${(duration / 1000).toFixed(2)}s` : 'unknown';
               
               logger.debug(`[AcpSdkBackend] ⏱️ Tool call TIMEOUT (from tool_call_update): ${toolCallId} (${toolKind}) after ${(timeoutMs / 1000).toFixed(0)}s - Duration: ${durationStr}, removing from active set`);
-              this.activeToolCalls.delete(toolCallId);
-              this.toolCallStartTimes.delete(toolCallId);
-              this.toolCallTimeouts.delete(toolCallId);
+              this.handleToolCallComplete(toolCallId);
               
               // Check if we should emit idle status
               if (this.activeToolCalls.size === 0) {
@@ -1097,23 +1115,10 @@ export class AcpSdkBackend implements AgentBackend {
           });
         }
 
-        this.activeToolCalls.delete(toolCallId);
-        this.toolCallStartTimes.delete(toolCallId);
-        
-        const timeout = this.toolCallTimeouts.get(toolCallId);
-        if (timeout) {
-          clearTimeout(timeout);
-          this.toolCallTimeouts.delete(toolCallId);
-        }
+        this.handleToolCallComplete(toolCallId);
         
         const durationStr = duration ? `${(duration / 1000).toFixed(2)}s` : 'unknown';
         logger.debug(`[AcpSdkBackend] ✅ Tool call COMPLETED: ${toolCallId} (${toolKind}) - Duration: ${durationStr}. Active tool calls: ${this.activeToolCalls.size}`);
-
-        // Clean up active edits for this tool
-        const editEntry = this.activeEdits.get(toolCallId);
-        if (editEntry && editEntry.path) {
-          this.activeEdits.delete(toolCallId);
-        }
 
         this.emit({
           type: 'tool-result',
@@ -1162,17 +1167,7 @@ export class AcpSdkBackend implements AgentBackend {
         }
         
         // Now cleanup - remove from active set and clear timeout
-        this.activeToolCalls.delete(toolCallId);
-        this.toolCallStartTimes.delete(toolCallId);
-        
-        const timeout = this.toolCallTimeouts.get(toolCallId);
-        if (timeout) {
-          clearTimeout(timeout);
-          this.toolCallTimeouts.delete(toolCallId);
-          logger.debug(`[AcpSdkBackend] Cleared timeout for ${toolCallId} (tool call ${status})`);
-        } else {
-          logger.debug(`[AcpSdkBackend] No timeout found for ${toolCallId} (tool call ${status}) - timeout may not have been set`);
-        }
+        this.handleToolCallComplete(toolCallId);
         
         const durationStr = duration ? `${(duration / 1000).toFixed(2)}s` : 'unknown';
         logger.debug(`[AcpSdkBackend] ❌ Tool call ${status.toUpperCase()}: ${toolCallId} (${toolKind}) - Duration: ${durationStr}. Active tool calls: ${this.activeToolCalls.size}`);
@@ -1392,9 +1387,7 @@ export class AcpSdkBackend implements AgentBackend {
               const durationStr = duration ? `${(duration / 1000).toFixed(2)}s` : 'unknown';
               
               logger.debug(`[AcpSdkBackend] ⏱️ Tool call TIMEOUT (from tool_call): ${toolCallId} (${update.kind}) after ${(timeoutMs / 1000).toFixed(0)}s - Duration: ${durationStr}, removing from active set`);
-              this.activeToolCalls.delete(toolCallId);
-              this.toolCallStartTimes.delete(toolCallId);
-              this.toolCallTimeouts.delete(toolCallId);
+              this.handleToolCallComplete(toolCallId);
               
               // Check if we should emit idle status
               if (this.activeToolCalls.size === 0) {
