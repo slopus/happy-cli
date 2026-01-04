@@ -256,6 +256,8 @@ import { execFileSync } from 'node:child_process'
       let cwd: string = process.cwd();
       let initialPrompt: string | undefined = undefined;
       let startedBy: 'daemon' | 'terminal' | undefined = undefined;
+      let resumeSessionId: string | undefined = undefined;
+      let forceNewSession = false;
 
       for (let i = 1; i < args.length; i++) {
         if ((args[i] === '-m' || args[i] === '--model') && args[i + 1]) {
@@ -266,6 +268,10 @@ import { execFileSync } from 'node:child_process'
           initialPrompt = args[++i];
         } else if (args[i] === '--started-by') {
           startedBy = args[++i] as 'daemon' | 'terminal';
+        } else if (args[i] === '--resume-session' && args[i + 1]) {
+          resumeSessionId = args[++i];
+        } else if (args[i] === '--force-new-session') {
+          forceNewSession = true;
         }
       }
 
@@ -291,6 +297,8 @@ import { execFileSync } from 'node:child_process'
         cwd,
         model,
         initialPrompt,
+        resumeSessionId,
+        forceNewSession,
       });
     } catch (error) {
       console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
@@ -520,6 +528,8 @@ ${chalk.bold('Usage:')}
   happy codex             Start Codex mode
   happy gemini            Start Gemini mode (ACP)
   happy opencode          Start OpenCode mode (ACP)
+                            --resume-session <id>  Resume specific session
+                            --force-new-session    Start fresh session
   happy connect           Connect AI vendor API keys
   happy notify            Send push notification
   happy git-hook          Manage git pre-commit hooks
