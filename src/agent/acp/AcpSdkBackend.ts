@@ -17,6 +17,7 @@ import {
   type RequestPermissionResponse,
   type InitializeRequest,
   type NewSessionRequest,
+  type LoadSessionRequest,
   type PromptRequest,
   type ContentBlock,
 } from '@agentclientprotocol/sdk';
@@ -131,6 +132,9 @@ export interface AcpSdkBackendOptions {
   
   /** Optional permission handler for tool approval */
   permissionHandler?: AcpPermissionHandler;
+  
+  /** Optional session ID to resume an existing session */
+  resumeSessionId?: string;
 }
 
 /**
@@ -225,6 +229,22 @@ export class AcpSdkBackend implements AgentBackend {
   private idleTimeout: NodeJS.Timeout | null = null;
 
   constructor(private options: AcpSdkBackendOptions) {
+  }
+
+  /**
+   * Build MCP servers array in the format expected by ACP SDK
+   */
+  private buildMcpServersArray(): NewSessionRequest['mcpServers'] {
+    return this.options.mcpServers 
+      ? Object.entries(this.options.mcpServers).map(([name, config]) => ({
+          name,
+          command: config.command,
+          args: config.args || [],
+          env: config.env 
+            ? Object.entries(config.env).map(([envName, envValue]) => ({ name: envName, value: envValue }))
+            : [],
+        }))
+      : [];
   }
 
   onMessage(handler: AgentMessageHandler): void {
@@ -614,43 +634,71 @@ export class AcpSdkBackend implements AgentBackend {
       ]);
       logger.debug(`[AcpSdkBackend] Initialize completed`);
 
-      // Create a new session
-      const mcpServers = this.options.mcpServers 
-        ? Object.entries(this.options.mcpServers).map(([name, config]) => ({
-            name,
-            command: config.command,
-            args: config.args || [],
-            env: config.env 
-              ? Object.entries(config.env).map(([envName, envValue]) => ({ name: envName, value: envValue }))
-              : [],
-          }))
-        : [];
+      // Build MCP servers array for session creation
+      const mcpServers = this.buildMcpServersArray();
 
-      const newSessionRequest: NewSessionRequest = {
-        cwd: this.options.cwd,
-        mcpServers: mcpServers as unknown as NewSessionRequest['mcpServers'],
-      };
+      // Try to load existing session if resumeSessionId is provided
+      if (this.options.resumeSessionId) {
+        const loadRequest: LoadSessionRequest = {
+          cwd: this.options.cwd,
+          mcpServers: mcpServers as unknown as LoadSessionRequest['mcpServers'],
+          sessionId: this.options.resumeSessionId,
+        };
 
-      logger.debug(`[AcpSdkBackend] Creating new session...`);
-      let newSessionTimeout: NodeJS.Timeout | null = null;
-      const sessionResponse = await Promise.race([
-        this.connection.newSession(newSessionRequest).then((result) => {
-          // Clear timeout if session creation succeeds
-          if (newSessionTimeout) {
-            clearTimeout(newSessionTimeout);
-            newSessionTimeout = null;
-          }
-          return result;
-        }),
-        new Promise<never>((_, reject) => {
-          newSessionTimeout = setTimeout(() => {
-            logger.debug(`[AcpSdkBackend] NewSession timeout after ${ACP_INIT_TIMEOUT_MS}ms`);
-            reject(new Error('New session timeout'));
-          }, ACP_INIT_TIMEOUT_MS);
-        }),
-      ]);
-      this.acpSessionId = sessionResponse.sessionId;
-      logger.debug(`[AcpSdkBackend] Session created: ${this.acpSessionId}`);
+        try {
+          logger.debug(`[AcpSdkBackend] Loading existing session: ${this.options.resumeSessionId}...`);
+          let loadSessionTimeout: NodeJS.Timeout | null = null;
+          await Promise.race([
+            this.connection.loadSession(loadRequest).then((result) => {
+              if (loadSessionTimeout) {
+                clearTimeout(loadSessionTimeout);
+                loadSessionTimeout = null;
+              }
+              return result;
+            }),
+            new Promise<never>((_, reject) => {
+              loadSessionTimeout = setTimeout(() => {
+                logger.debug(`[AcpSdkBackend] LoadSession timeout after ${ACP_INIT_TIMEOUT_MS}ms`);
+                reject(new Error('Load session timeout'));
+              }, ACP_INIT_TIMEOUT_MS);
+            }),
+          ]);
+          this.acpSessionId = this.options.resumeSessionId;
+          logger.debug(`[AcpSdkBackend] Session loaded: ${this.acpSessionId}`);
+        } catch (loadError) {
+          logger.debug(`[AcpSdkBackend] loadSession failed, falling back to newSession:`, loadError);
+          // Fall through to newSession below
+        }
+      }
+
+      // If no resumeSessionId or loadSession failed, create new session
+      if (!this.acpSessionId) {
+        const newSessionRequest: NewSessionRequest = {
+          cwd: this.options.cwd,
+          mcpServers: mcpServers as unknown as NewSessionRequest['mcpServers'],
+        };
+
+        logger.debug(`[AcpSdkBackend] Creating new session...`);
+        let newSessionTimeout: NodeJS.Timeout | null = null;
+        const sessionResponse = await Promise.race([
+          this.connection.newSession(newSessionRequest).then((result) => {
+            // Clear timeout if session creation succeeds
+            if (newSessionTimeout) {
+              clearTimeout(newSessionTimeout);
+              newSessionTimeout = null;
+            }
+            return result;
+          }),
+          new Promise<never>((_, reject) => {
+            newSessionTimeout = setTimeout(() => {
+              logger.debug(`[AcpSdkBackend] NewSession timeout after ${ACP_INIT_TIMEOUT_MS}ms`);
+              reject(new Error('New session timeout'));
+            }, ACP_INIT_TIMEOUT_MS);
+          }),
+        ]);
+        this.acpSessionId = sessionResponse.sessionId;
+        logger.debug(`[AcpSdkBackend] Session created: ${this.acpSessionId}`);
+      }
 
       this.emit({ type: 'status', status: 'idle' });
 
