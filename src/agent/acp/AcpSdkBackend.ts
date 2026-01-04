@@ -245,6 +245,9 @@ export class AcpSdkBackend implements AgentBackend {
     setAt: number;
   }>();
 
+  /** Cache available commands from server */
+  private availableCommands: Array<{ name: string; description: string }> = [];
+
   constructor(private options: AcpSdkBackendOptions) {
     this.sessionMode = options.sessionMode;
   }
@@ -337,6 +340,92 @@ export class AcpSdkBackend implements AgentBackend {
     };
 
     return mapping[mode] ?? 'denied';
+  }
+
+  /**
+   * Parse command from user input
+   * Detects commands starting with "/" (e.g., "/compact", "/summarize")
+   * Returns { name, args } or null if not a command
+   */
+  private parseCommand(input: string): { name: string; args: string[] } | null {
+    const trimmed = input.trim();
+
+    if (!trimmed.startsWith('/')) {
+      return null;
+    }
+
+    const [name, ...rest] = trimmed.slice(1).split(/\s+/);
+    const args = rest.join(' ').trim();
+
+    return { name, args: args ? args.split(/\s+/) : [] };
+  }
+
+  /**
+   * Execute a command via ACP
+   * Commands supported: compact, summarize, list, help
+   *
+   * Note: Currently using extMethod as a workaround since sessionCommand
+   * is not yet available in ACP SDK v0.8.0. Should be updated to use
+   * sessionCommand when SDK is upgraded.
+   *
+   * @param name - Command name (e.g., "compact")
+   * @param args - Command arguments
+   */
+  private async executeCommand(
+    name: string,
+    args: string[]
+  ): Promise<void> {
+    switch (name) {
+      case 'compact':
+        logger.debug(`[AcpSdkBackend] Executing /compact command`);
+        await this.connection?.extMethod('session/command', {
+          command: 'compact',
+          arguments: [],
+        });
+        break;
+
+      case 'summarize':
+        logger.debug(`[AcpSdkBackend] Executing /summarize command`);
+        await this.connection?.extMethod('session/command', {
+          command: 'summarize',
+          arguments: [],
+        });
+        break;
+
+      case 'list':
+        logger.debug(`[AcpSdkBackend] Executing /list command`);
+        await this.connection?.extMethod('session/command', {
+          command: 'list',
+          arguments: [],
+        });
+        break;
+
+      case 'help':
+        await this.showHelp();
+        break;
+
+      default:
+        this.emit({
+          type: 'terminal-output',
+          data: `Unknown command: /${name}. Type /help for available commands.`,
+        });
+        break;
+    }
+  }
+
+  /**
+   * Show help with available commands
+   * Lists all known commands from the available commands cache
+   */
+  private async showHelp(): Promise<void> {
+    const commands = this.availableCommands || [];
+
+    this.emit({
+      type: 'terminal-output',
+      data: `Available commands:\n${commands.map(cmd =>
+        ` /${cmd.name.padEnd(15)} ${cmd.description || ''}`
+      ).join('\n')}`,
+    });
   }
 
   /**
@@ -1128,7 +1217,16 @@ export class AcpSdkBackend implements AgentBackend {
       }
     }
 
-    // Handle permission.asked - user selected a permission option from OpenCode UI
+    
+    // Handle available_commands_update - cache available commands from server
+    if (sessionUpdateType === 'available_commands_update') {
+      this.availableCommands = update.availableCommands;
+      logger.debug(`[AcpSdkBackend] Available commands updated:`,
+        this.availableCommands?.map(c => c.name).join(', ')
+      );
+    }
+
+// Handle permission.asked - user selected a permission option from OpenCode UI
     if (sessionUpdateType === ('permission.asked' as any)) {
       const toolCallId = (update as any).toolCallId;
       const outcome = (update as any).outcome;
@@ -1308,13 +1406,22 @@ export class AcpSdkBackend implements AgentBackend {
   }
 
   async sendPrompt(sessionId: SessionId, prompt: string): Promise<void> {
+    // Check if prompt contains a command
+    const parsedCommand = this.parseCommand(prompt);
+
+    if (parsedCommand) {
+      logger.debug(`[AcpSdkBackend] Detected command: /${parsedCommand.name}`);
+      await this.executeCommand(parsedCommand.name, parsedCommand.args);
+      return;
+    }
+
     // Check if prompt contains change_title instruction
     const promptHasChangeTitle = hasChangeTitleInstruction(prompt);
-    
+
     // Reset tool call counter and set flag
     this.toolCallCountSincePrompt = 0;
     this.recentPromptHadChangeTitle = promptHasChangeTitle;
-    
+
     if (promptHasChangeTitle) {
       logger.debug('[AcpSdkBackend] Prompt contains change_title instruction - will auto-approve first "other" tool call if it matches pattern');
     }
@@ -1331,7 +1438,7 @@ export class AcpSdkBackend implements AgentBackend {
     try {
       logger.debug(`[AcpSdkBackend] Sending prompt (length: ${prompt.length}): ${prompt.substring(0, 100)}...`);
       logger.debug(`[AcpSdkBackend] Full prompt: ${prompt}`);
-      
+
       const contentBlock: ContentBlock = {
         type: 'text',
         text: prompt,
@@ -1345,13 +1452,13 @@ export class AcpSdkBackend implements AgentBackend {
       logger.debug(`[AcpSdkBackend] Prompt request:`, JSON.stringify(promptRequest, null, 2));
       await this.connection.prompt(promptRequest);
       logger.debug('[AcpSdkBackend] Prompt request sent to ACP connection');
-      
+
       // Don't emit 'idle' here - it will be emitted after all message chunks are received
       // The idle timeout in handleSessionUpdate will emit 'idle' after the last chunk
 
     } catch (error) {
       logger.debug('[AcpSdkBackend] Error sending prompt:', error);
-      
+
       // Extract error details for better error handling
       let errorDetail: string;
       if (error instanceof Error) {
@@ -1370,10 +1477,10 @@ export class AcpSdkBackend implements AgentBackend {
       } else {
         errorDetail = String(error);
       }
-      
-      this.emit({ 
-        type: 'status', 
-        status: 'error', 
+
+      this.emit({
+        type: 'status',
+        status: 'error',
         detail: errorDetail
       });
       throw error;
