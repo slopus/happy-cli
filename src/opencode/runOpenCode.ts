@@ -43,6 +43,10 @@ import {
   formatOptionsXml,
 } from './utils/optionsParser';
 import { OpenCodeReasoningProcessor } from './utils/reasoningProcessor';
+import {
+  getLastSessionForDirectory,
+  saveSessionForDirectory,
+} from './utils/sessionPersistence';
 
 /**
  * Main entry point for the opencode command with ink UI
@@ -53,6 +57,10 @@ export async function runOpenCode(opts: {
   cwd?: string;
   model?: string;
   initialPrompt?: string;
+  /** Explicit session ID to resume */
+  resumeSessionId?: string;
+  /** Force new session even if previous exists */
+  forceNewSession?: boolean;
 }): Promise<void> {
   //
   // Define session
@@ -103,6 +111,28 @@ export async function runOpenCode(opts: {
   };
   const response = await api.getOrCreateSession({ tag: sessionTag, metadata, state });
   const session = api.sessionSyncClient(response);
+
+  //
+  // Session resumption
+  //
+
+  const workingDirectory = opts.cwd || process.cwd();
+
+  // Determine session ID to resume
+  let sessionIdToResume: string | undefined = opts.resumeSessionId;
+
+  // Auto-resume: check for previous session in this directory
+  if (!sessionIdToResume && !opts.forceNewSession) {
+    const lastSession = await getLastSessionForDirectory(workingDirectory);
+    if (lastSession) {
+      logger.debug(`[OpenCode] Found previous session for directory: ${lastSession.opencodeSessionId}`);
+      sessionIdToResume = lastSession.opencodeSessionId;
+    }
+  }
+
+  if (sessionIdToResume) {
+    logger.debug(`[OpenCode] Will attempt to resume session: ${sessionIdToResume}`);
+  }
 
   // Report to daemon
   try {
@@ -587,10 +617,11 @@ export async function runOpenCode(opts: {
           if (first || !wasSessionCreated) {
             if (!opencodeBackend) {
               opencodeBackend = createOpenCodeBackend({
-                cwd: opts.cwd || process.cwd(),
+                cwd: workingDirectory,
                 mcpServers,
                 permissionHandler,
                 model: message.mode.model,
+                resumeSessionId: sessionIdToResume,
               });
 
               setupOpenCodeMessageHandler(opencodeBackend);
@@ -607,6 +638,14 @@ export async function runOpenCode(opts: {
 
               // Capture session ID for tracking
               sessionTracker.captureSessionId(sessionId);
+
+              // Persist session ID for future auto-resume
+              if (acpSessionId) {
+                saveSessionForDirectory(workingDirectory, {
+                  opencodeSessionId: acpSessionId,
+                  updatedAt: Date.now(),
+                }).catch(err => logger.debug('[OpenCode] Failed to save session:', err));
+              }
             }
           }
 
