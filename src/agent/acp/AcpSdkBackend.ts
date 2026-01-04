@@ -248,6 +248,14 @@ export class AcpSdkBackend implements AgentBackend {
   /** Cache available commands from server */
   private availableCommands: Array<{ name: string; description: string }> = [];
 
+  /** Track active edits for diff extraction */
+  private activeEdits = new Map<string, {
+    path: string;
+    oldText: string;
+    newText: string;
+    timestamp: number;
+  }>();
+
   constructor(private options: AcpSdkBackendOptions) {
     this.sessionMode = options.sessionMode;
   }
@@ -340,6 +348,28 @@ export class AcpSdkBackend implements AgentBackend {
     };
 
     return mapping[mode] ?? 'denied';
+  }
+
+  /**
+   * Format diff between old and new text
+   * Simple line-by-line diff for mobile app
+   */
+  private formatDiff(oldText: string, newText: string): string {
+    const oldLines = oldText.split('\n');
+    const newLines = newText.split('\n');
+    const changes: string[] = [];
+
+    for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
+      const oldLine = oldLines[i] || '';
+      const newLine = newLines[i] || '';
+
+      if (oldLine !== newLine) {
+        const marker = i < oldLines.length ? '-' : '+';
+        changes.push(`${marker} ${newLine}`);
+      }
+    }
+
+    return changes.join('\n');
   }
 
   /**
@@ -1042,7 +1072,31 @@ export class AcpSdkBackend implements AgentBackend {
         const startTime = this.toolCallStartTimes.get(toolCallId);
         const duration = startTime ? Date.now() - startTime : null;
         const toolKind = update.kind || 'unknown';
-        
+
+        // Extract diff content from edit tools
+        const content = update.content || [];
+        const diffContent = content.find((c: any) =>
+          c.type === 'diff' && 'path' in c && 'oldText' in c && 'newText' in c
+        );
+
+        if (diffContent && toolKind === 'edit') {
+          const diffData = diffContent as { path: string; oldText: string; newText: string };
+          const path = diffData.path;
+          this.activeEdits.set(toolCallId, {
+            path,
+            oldText: diffData.oldText,
+            newText: diffData.newText,
+            timestamp: Date.now(),
+          });
+
+          this.emit({
+            type: 'fs-edit',
+            description: `Edit: ${path}`,
+            diff: this.formatDiff(diffData.oldText, diffData.newText),
+            path,
+          });
+        }
+
         this.activeToolCalls.delete(toolCallId);
         this.toolCallStartTimes.delete(toolCallId);
         
@@ -1054,7 +1108,13 @@ export class AcpSdkBackend implements AgentBackend {
         
         const durationStr = duration ? `${(duration / 1000).toFixed(2)}s` : 'unknown';
         logger.debug(`[AcpSdkBackend] ✅ Tool call COMPLETED: ${toolCallId} (${toolKind}) - Duration: ${durationStr}. Active tool calls: ${this.activeToolCalls.size}`);
-        
+
+        // Clean up active edits for this tool
+        const editEntry = this.activeEdits.get(toolCallId);
+        if (editEntry && editEntry.path) {
+          this.activeEdits.delete(toolCallId);
+        }
+
         this.emit({
           type: 'tool-result',
           toolName: typeof toolKind === 'string' ? toolKind : 'unknown',
