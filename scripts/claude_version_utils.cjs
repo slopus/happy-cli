@@ -250,11 +250,43 @@ function findLatestVersionBinary(versionsDir, binaryName = null) {
 }
 
 /**
+ * Find path to globally installed Claude Code CLI via PATH
+ * This handles non-standard path installations like NixOS etc.
+ * @returns {{path: string, source: string}|null} Path and source, or null if not found
+ */
+function findPathBasedCliPath() {
+    try {
+        const cmd = process.platform === 'win32' ? 'where' : 'which';
+        const result = execSync(`${cmd} claude`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+        if (result && fs.existsSync(result)) {
+            return { path: result, source: 'PATH' };
+        }
+    } catch {
+        // claude not in PATH
+    }
+    return null;
+}
+
+/**
+ * Find Claude Code CLI path via HAPPY_CLAUDE_PATH environment variable
+ * @returns {{path: string, source: string}|null} Path and source, or null if not set/found
+ */
+function findHappyClaudePathCliPath() {
+    const envPath = process.env.HAPPY_CLAUDE_PATH;
+    if (envPath && fs.existsSync(envPath)) {
+        return { path: envPath, source: 'HAPPY_CLAUDE_PATH' };
+    }
+    return null;
+}
+
+/**
  * Find path to globally installed Claude Code CLI
  * Checks multiple installation methods in order of preference:
  * 1. npm global (highest priority)
  * 2. Homebrew
  * 3. Native installer
+ * 4. PATH (e.g., NixOS)
+ * 5. HAPPY_CLAUDE_PATH environment variable
  * @returns {{path: string, source: string}|null} Path and source, or null if not found
  */
 function findGlobalClaudeCliPath() {
@@ -269,6 +301,14 @@ function findGlobalClaudeCliPath() {
     // Check native installer
     const nativePath = findNativeInstallerCliPath();
     if (nativePath) return { path: nativePath, source: 'native installer' };
+
+    // Check global PATH
+    const pathBased = findPathBasedCliPath();
+    if (pathBased) return pathBased;
+
+    // Check HAPPY_CLAUDE_PATH environment variable
+    const happyClaudePath = findHappyClaudePathCliPath();
+    if (happyClaudePath) return happyClaudePath;
 
     return null;
 }
@@ -324,6 +364,8 @@ function getClaudeCliPath() {
         console.error('  \x1b[90mmacOS/Linux:\x1b[0m  \x1b[36mcurl -fsSL https://claude.ai/install.sh | bash\x1b[0m');
         console.error('  \x1b[90mPowerShell:\x1b[0m   \x1b[36mirm https://claude.ai/install.ps1 | iex\x1b[0m');
         console.error('  \x1b[90mWindows CMD:\x1b[0m  \x1b[36mcurl -fsSL https://claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd\x1b[0m\n');
+        console.error('\x1b[1mOption 4 - PATH (NixOS etc.):\x1b[0m');
+        console.error('  \x1b[36mOther non-official install methods.\x1b[0m\n');
         console.error('\x1b[90mNote: If multiple installations exist, npm takes priority.\x1b[0m\n');
         process.exit(1);
     }
@@ -370,6 +412,8 @@ module.exports = {
     findNpmGlobalCliPath,
     findHomebrewCliPath,
     findNativeInstallerCliPath,
+    findPathBasedCliPath,
+    findHappyClaudePathCliPath,
     getVersion,
     compareVersions,
     getClaudeCliPath,
