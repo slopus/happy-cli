@@ -83,4 +83,30 @@ describe('ACP Integration Tests', () => {
     await backend.startSession();
     await backend.sendPrompt('sess-1', '/compact');
   });
+
+  it('runs /compact via extMethod when command is available', async () => {
+    backend = createOpenCodeBackend({
+      cwd: '/tmp/test',
+      mcpServers: {},
+      permissionHandler: null as any,
+      model: 'gpt-4',
+    });
+
+    await backend.startSession();
+
+    (backend as any).handleSessionUpdate({
+      sessionId: 'sess_1',
+      update: {
+        sessionUpdate: 'available_commands_update',
+        availableCommands: [{ name: 'compact', description: 'Compact' }],
+      },
+    });
+
+    await backend.sendPrompt('sess_1', '/compact');
+
+    expect(mockExtMethod).toHaveBeenCalledWith('session/command', {
+      command: 'compact',
+      arguments: [],
+    });
+  });
 });
