@@ -112,16 +112,25 @@ describe('Memory Performance Tests', () => {
     it('should share string memory when possible', () => {
       const strings = Array.from({ length: 1000 }, () => 'same string');
 
+      if (global.gc) {
+        global.gc();
+      }
+
       // V8 may intern identical strings
       const initialMemory = process.memoryUsage().heapUsed;
 
       const moreStrings = Array.from({ length: 1000 }, () => 'same string');
 
+      if (global.gc) {
+        global.gc();
+      }
+
       const afterMemory = process.memoryUsage().heapUsed;
       const growth = afterMemory - initialMemory;
+      const maxGrowth = global.gc ? 100 * 1024 : 256 * 1024;
 
-      // Growth should be minimal due to string interning
-      expect(growth).toBeLessThan(100 * 1024); // <100KB growth
+      // Growth should be minimal due to string interning, with headroom without GC
+      expect(growth).toBeLessThan(maxGrowth);
     });
 
     it('should handle large string concatenation efficiently', () => {
