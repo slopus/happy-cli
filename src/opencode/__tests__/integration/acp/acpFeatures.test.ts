@@ -80,8 +80,8 @@ describe('ACP Integration Tests', () => {
       model: 'gpt-4',
     });
 
-    await backend.startSession();
-    await backend.sendPrompt('sess-1', '/compact');
+    const { sessionId } = await backend.startSession();
+    await backend.sendPrompt(sessionId, '/compact');
   });
 
   it('runs /compact via extMethod when command is available', async () => {
@@ -92,18 +92,19 @@ describe('ACP Integration Tests', () => {
       model: 'gpt-4',
     });
 
-    await backend.startSession();
+    const { sessionId } = await backend.startSession();
 
     (backend as any).handleSessionUpdate({
-      sessionId: 'sess_1',
+      sessionId,
       update: {
         sessionUpdate: 'available_commands_update',
         availableCommands: [{ name: 'compact', description: 'Compact' }],
       },
     });
 
-    await backend.sendPrompt('sess_1', '/compact');
+    await backend.sendPrompt(sessionId, '/compact');
 
+    expect(mockPrompt).not.toHaveBeenCalled();
     expect(mockExtMethod).toHaveBeenCalledWith('session/command', {
       command: 'compact',
       arguments: [],
