@@ -272,6 +272,79 @@ describe('ACP Backend Unit Tests', () => {
     });
   });
 
+  describe('mode validation', () => {
+    it('defaults to default session mode for unsupported values', async () => {
+      backend = createOpenCodeBackend({
+        cwd: '/tmp/test',
+        mcpServers: {},
+        permissionHandler: null as any,
+        model: 'test-model',
+        sessionMode: 'fast' as any,
+      });
+
+      expect((backend as any).getSessionMode()).toBe('default');
+    });
+
+    it('auto-approves tools in yolo mode', async () => {
+      backend = createOpenCodeBackend({
+        cwd: '/tmp/test',
+        mcpServers: {},
+        permissionHandler: null as any,
+        model: 'test-model',
+        sessionMode: 'yolo',
+      });
+
+      const result = await (backend as any).makePermissionDecision('tc1', 'bash', {});
+
+      expect(result.decision).toBe('approved');
+    });
+
+    it('approves safe tools in safe mode', async () => {
+      backend = createOpenCodeBackend({
+        cwd: '/tmp/test',
+        mcpServers: {},
+        permissionHandler: null as any,
+        model: 'test-model',
+        sessionMode: 'safe',
+      });
+
+      const result = await (backend as any).makePermissionDecision('tc1', 'read_file', {});
+
+      expect(result.decision).toBe('approved');
+    });
+
+    it('denies unsafe tools in safe mode', async () => {
+      backend = createOpenCodeBackend({
+        cwd: '/tmp/test',
+        mcpServers: {},
+        permissionHandler: null as any,
+        model: 'test-model',
+        sessionMode: 'safe',
+      });
+
+      const result = await (backend as any).makePermissionDecision('tc1', 'bash', {});
+
+      expect(result.decision).toBe('denied');
+    });
+
+    it('clears invalid permission mode entries', async () => {
+      backend = createOpenCodeBackend({
+        cwd: '/tmp/test',
+        mcpServers: {},
+        permissionHandler: null as any,
+        model: 'test-model',
+      });
+
+      const backendAny = backend as any;
+      backendAny.permissionModes.set('bash', { mode: 'sometimes', setAt: Date.now() });
+
+      const result = await backendAny.makePermissionDecision('tc1', 'bash', {});
+
+      expect(result.decision).toBe('denied');
+      expect(backendAny.permissionModes.has('bash')).toBe(false);
+    });
+  });
+
   describe('tool call updates', () => {
     it('emits fs-edit when update.content provides diff finder', async () => {
       backend = createOpenCodeBackend({
@@ -390,6 +463,28 @@ describe('ACP Backend Unit Tests', () => {
       const output = messages.find((m) => m.type === 'terminal-output');
       expect(output).toBeDefined();
       expect(output.data).toBe('Unknown command: /compact. Type /help for available commands.');
+    });
+
+    it('emits error when command execution fails', async () => {
+      backend = createOpenCodeBackend({
+        cwd: '/tmp/test',
+        mcpServers: {},
+        permissionHandler: null as any,
+        model: 'gpt-4',
+      });
+
+      await backend.startSession();
+
+      const messages: any[] = [];
+      backend.onMessage((msg) => messages.push(msg));
+      (backend as any).availableCommands = [{ name: 'compact', description: 'Compact' }];
+      mockExtMethod.mockRejectedValueOnce(new Error('boom'));
+
+      await expect((backend as any).executeCommand('compact', [])).resolves.toBeUndefined();
+
+      const output = messages.find((m) => m.type === 'terminal-output');
+      expect(output).toBeDefined();
+      expect(output.data).toBe('Error executing /compact: boom');
     });
   });
 });

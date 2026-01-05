@@ -267,7 +267,14 @@ export class AcpSdkBackend implements AgentBackend {
   }>();
 
   constructor(private options: AcpSdkBackendOptions) {
-    this.sessionMode = options.sessionMode;
+    const sessionMode = options.sessionMode;
+
+    if (sessionMode && sessionMode !== 'default' && sessionMode !== 'yolo' && sessionMode !== 'safe') {
+      logger.warn(`[AcpSdkBackend] Unsupported session mode: ${sessionMode}, defaulting to 'default'`);
+      this.sessionMode = 'default';
+    } else {
+      this.sessionMode = sessionMode;
+    }
   }
 
   /** Get the current session mode */
@@ -310,18 +317,23 @@ export class AcpSdkBackend implements AgentBackend {
     toolName: string,
     input: unknown
   ): Promise<{ decision: 'approved' | 'approved_for_session' | 'denied' | 'abort' }> {
-    const storedMode = this.permissionModes.get(toolName);
+    const storedMode = this.permissionModes.get(toolName) as { mode: string; setAt: number } | undefined;
 
     if (storedMode) {
-      const decision = this.mapPermissionModeToDecision(storedMode.mode);
-      logger.debug(`[AcpSdkBackend] Using stored permission mode for ${toolName}: ${storedMode.mode} -> ${decision}`);
-
-      if (storedMode.mode === 'once') {
+      if (!this.isValidPermissionMode(storedMode.mode)) {
         this.permissionModes.delete(toolName);
-        logger.debug(`[AcpSdkBackend] Cleared 'once' mode for ${toolName} after single use`);
-      }
+        logger.debug(`[AcpSdkBackend] Invalid permission mode reset: ${toolName}`);
+      } else {
+        const decision = this.mapPermissionModeToDecision(storedMode.mode);
+        logger.debug(`[AcpSdkBackend] Using stored permission mode for ${toolName}: ${storedMode.mode} -> ${decision}`);
 
-      return { decision };
+        if (storedMode.mode === 'once') {
+          this.permissionModes.delete(toolName);
+          logger.debug(`[AcpSdkBackend] Cleared 'once' mode for ${toolName} after single use`);
+        }
+
+        return { decision };
+      }
     }
 
     if (this.sessionMode === 'yolo') {
@@ -345,6 +357,13 @@ export class AcpSdkBackend implements AgentBackend {
     }
 
     return { decision: 'denied' };
+  }
+
+  /**
+   * Validate permission mode values coming from external sources
+   */
+  private isValidPermissionMode(mode: string): mode is 'once' | 'always' | 'reject' {
+    return mode === 'once' || mode === 'always' || mode === 'reject';
   }
 
   /**
@@ -477,41 +496,50 @@ export class AcpSdkBackend implements AgentBackend {
       }
     }
 
-    switch (name) {
-      case 'compact':
-        logger.debug(`[AcpSdkBackend] Executing /compact command`);
-        await this.connection?.extMethod('session/command', {
-          command: 'compact',
-          arguments: [],
-        });
-        break;
+    try {
+      switch (name) {
+        case 'compact':
+          logger.debug(`[AcpSdkBackend] Executing /compact command`);
+          await this.connection?.extMethod('session/command', {
+            command: 'compact',
+            arguments: [],
+          });
+          break;
 
-      case 'summarize':
-        logger.debug(`[AcpSdkBackend] Executing /summarize command`);
-        await this.connection?.extMethod('session/command', {
-          command: 'summarize',
-          arguments: [],
-        });
-        break;
+        case 'summarize':
+          logger.debug(`[AcpSdkBackend] Executing /summarize command`);
+          await this.connection?.extMethod('session/command', {
+            command: 'summarize',
+            arguments: [],
+          });
+          break;
 
-      case 'list':
-        logger.debug(`[AcpSdkBackend] Executing /list command`);
-        await this.connection?.extMethod('session/command', {
-          command: 'list',
-          arguments: [],
-        });
-        break;
+        case 'list':
+          logger.debug(`[AcpSdkBackend] Executing /list command`);
+          await this.connection?.extMethod('session/command', {
+            command: 'list',
+            arguments: [],
+          });
+          break;
 
-      case 'help':
-        await this.showHelp();
-        break;
+        case 'help':
+          await this.showHelp();
+          break;
 
-      default:
-        this.emit({
-          type: 'terminal-output',
-          data: `Unknown command: /${name}. Type /help for available commands.`,
-        });
-        break;
+        default:
+          this.emit({
+            type: 'terminal-output',
+            data: `Unknown command: /${name}. Type /help for available commands.`,
+          });
+          break;
+      }
+    } catch (error) {
+      const errorDetail = error instanceof Error ? error.message : String(error);
+      logger.debug(`[AcpSdkBackend] Failed to execute command: ${name}`, error);
+      this.emit({
+        type: 'terminal-output',
+        data: `Error executing /${name}: ${errorDetail}`,
+      });
     }
   }
 
