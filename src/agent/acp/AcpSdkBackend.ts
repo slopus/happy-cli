@@ -392,6 +392,37 @@ export class AcpSdkBackend implements AgentBackend {
     return changes.join('\n');
   }
 
+  private parseTodoOutput(output: string): Array<{ content: string; status: string }> | null {
+    try {
+      const parsed = JSON.parse(output) as unknown;
+      if (!Array.isArray(parsed)) {
+        logger.debug('[AcpSdkBackend] Todowrite output is not an array');
+        return null;
+      }
+
+      const todos: Array<{ content: string; status: string }> = [];
+      for (const entry of parsed) {
+        if (!entry || typeof entry !== 'object') {
+          logger.debug('[AcpSdkBackend] Todowrite output entry is not an object');
+          return null;
+        }
+
+        const { content, status } = entry as { content?: unknown; status?: unknown };
+        if (typeof content !== 'string' || typeof status !== 'string') {
+          logger.debug('[AcpSdkBackend] Todowrite output entry missing content/status');
+          return null;
+        }
+
+        todos.push({ content, status });
+      }
+
+      return todos;
+    } catch (error) {
+      logger.debug('[AcpSdkBackend] Invalid todowrite output JSON:', error);
+      return null;
+    }
+  }
+
   /**
    * Parse command from user input
    * Detects commands starting with "/" (e.g., "/compact", "/summarize")
@@ -1000,7 +1031,7 @@ export class AcpSdkBackend implements AgentBackend {
         return;
       }
       
-        if (status === 'in_progress' || status === 'pending') {
+      if (status === 'in_progress' || status === 'pending') {
         // Only emit tool-call if we haven't seen this toolCallId before
         if (!this.activeToolCalls.has(toolCallId)) {
           const startTime = Date.now();
@@ -1089,10 +1120,10 @@ export class AcpSdkBackend implements AgentBackend {
         // Tool call finished - remove from active set and clear timeout
         const startTime = this.toolCallStartTimes.get(toolCallId);
         const duration = startTime ? Date.now() - startTime : null;
-        const toolKind = update.kind || 'unknown';
+        const toolKind: string = typeof update.kind === 'string' ? update.kind : 'unknown';
 
         // Extract diff content from edit tools
-        const content = update.content || [];
+        const content = Array.isArray(update.content) ? update.content : [];
         const diffContent = content.find((c: any) =>
           c.type === 'diff' && 'path' in c && 'oldText' in c && 'newText' in c
         );
@@ -1126,6 +1157,71 @@ export class AcpSdkBackend implements AgentBackend {
           result: update.content,
           callId: toolCallId,
         });
+
+        if (toolKind === 'todowrite') {
+          let todos: Array<{ content: string; status: string }> | null = null;
+
+          if (Array.isArray(update.content)) {
+            const contentBlock = update.content.find((block: unknown) =>
+              block &&
+              typeof block === 'object' &&
+              (block as { type?: string }).type === 'content' &&
+              typeof (block as { content?: { text?: unknown } }).content?.text === 'string'
+            ) as { content: { text: string } } | undefined;
+
+            if (contentBlock) {
+              todos = this.parseTodoOutput(contentBlock.content.text);
+            } else {
+              const textBlock = update.content.find((block: unknown) =>
+                block &&
+                typeof block === 'object' &&
+                (block as { type?: string }).type === 'text' &&
+                typeof (block as { text?: unknown }).text === 'string'
+              ) as { text: string } | undefined;
+
+              if (textBlock) {
+                todos = this.parseTodoOutput(textBlock.text);
+              } else {
+                const parsedTodos: Array<{ content: string; status: string }> = [];
+                let isValid = true;
+
+                for (const entry of update.content) {
+                  if (!entry || typeof entry !== 'object') {
+                    isValid = false;
+                    break;
+                  }
+
+                  const { content, status } = entry as { content?: unknown; status?: unknown };
+                  if (typeof content !== 'string' || typeof status !== 'string') {
+                    isValid = false;
+                    break;
+                  }
+
+                  parsedTodos.push({ content, status });
+                }
+
+                if (isValid) {
+                  todos = parsedTodos;
+                }
+              }
+            }
+          } else if (typeof update.content === 'string') {
+            todos = this.parseTodoOutput(update.content);
+          }
+
+          if (todos) {
+            this.emit({
+              type: 'event',
+              name: 'plan',
+              payload: {
+                entries: todos.map((todo) => ({
+                  status: todo.status === 'cancelled' ? 'completed' : todo.status,
+                  content: todo.content,
+                })),
+              },
+            });
+          }
+        }
         
         // If no more active tool calls, emit 'idle' immediately (like Codex's task_complete)
         // No timeout needed - when all tool calls complete, task is done
