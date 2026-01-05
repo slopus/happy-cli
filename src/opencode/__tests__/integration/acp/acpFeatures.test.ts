@@ -111,6 +111,19 @@ describe('ACP Integration Tests', () => {
     });
   });
 
+  it('auto-approves tools in yolo mode via permission decision', async () => {
+    backend = createOpenCodeBackend({
+      cwd: '/tmp/test',
+      mcpServers: {},
+      permissionHandler: null as any,
+      model: 'gpt-4',
+      sessionMode: 'yolo',
+    });
+
+    const decision = await (backend as any).makePermissionDecision('tc3', 'bash', {});
+    expect(decision.decision).toBe('approved');
+  });
+
   it('emits plan event from todowrite update', async () => {
     backend = createOpenCodeBackend({
       cwd: '/tmp/test',
