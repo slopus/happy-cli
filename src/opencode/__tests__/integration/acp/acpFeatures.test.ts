@@ -110,4 +110,58 @@ describe('ACP Integration Tests', () => {
       arguments: [],
     });
   });
+
+  it('emits plan event from todowrite update', async () => {
+    backend = createOpenCodeBackend({
+      cwd: '/tmp/test',
+      mcpServers: {},
+      permissionHandler: null as any,
+      model: 'gpt-4',
+    });
+
+    const messages: any[] = [];
+    backend.onMessage((msg) => messages.push(msg));
+
+    (backend as any).handleSessionUpdate({
+      sessionId: 'acp-session',
+      update: {
+        sessionUpdate: 'tool_call_update',
+        status: 'completed',
+        toolCallId: 'tc1',
+        kind: 'todowrite',
+        content: '[{"content":"Do the thing","status":"pending"}]',
+      },
+    });
+
+    const plan = messages.find((m) => m.type === 'event' && m.name === 'plan');
+    expect(plan).toBeDefined();
+    expect(plan.payload.entries[0].content).toBe('Do the thing');
+  });
+
+  it('emits fs-edit event from edit update', async () => {
+    backend = createOpenCodeBackend({
+      cwd: '/tmp/test',
+      mcpServers: {},
+      permissionHandler: null as any,
+      model: 'gpt-4',
+    });
+
+    const messages: any[] = [];
+    backend.onMessage((msg) => messages.push(msg));
+
+    (backend as any).handleSessionUpdate({
+      sessionId: 'acp-session',
+      update: {
+        sessionUpdate: 'tool_call_update',
+        status: 'completed',
+        toolCallId: 'tc2',
+        kind: 'edit',
+        content: [{ type: 'diff', path: 'README.md', oldText: 'Hello', newText: 'Goodbye' }],
+      },
+    });
+
+    const edit = messages.find((m) => m.type === 'fs-edit');
+    expect(edit).toBeDefined();
+    expect(edit.path).toBe('README.md');
+  });
 });
