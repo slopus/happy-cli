@@ -66,9 +66,9 @@ type ExtendedRequestPermissionRequest = RequestPermissionRequest & {
 /**
  * Extended SessionNotification with additional fields
  */
-type ExtendedSessionNotification = SessionNotification & {
+type ExtendedSessionNotification = Omit<SessionNotification, 'update'> & {
   update?: {
-    sessionUpdate?: 'plan' | 'user_message_chunk' | 'agent_message_chunk' | 'agent_thought_chunk' | 'tool_call' | 'tool_call_update' | 'available_commands_update' | 'current_mode_update' | 'permission.asked';
+    sessionUpdate?: 'plan' | 'user_message_chunk' | 'agent_message_chunk' | 'agent_thought_chunk' | 'tool_call' | 'tool_call_update' | 'available_commands_update' | 'available_modes_update' | 'available_models_update' | 'current_mode_update' | 'permission.asked';
     toolCallId?: string;
     status?: string;
     kind?: string | unknown;
@@ -77,12 +77,16 @@ type ExtendedSessionNotification = SessionNotification & {
       error?: string | { message?: string };
       [key: string]: unknown;
     } | string | unknown;
+    delta?: string;
     locations?: unknown[];
     messageChunk?: {
       textDelta?: string;
     };
     plan?: unknown;
     thinking?: unknown;
+    availableCommands?: Array<{ name: string; description?: string }>;
+    availableModes?: Array<Record<string, unknown>>;
+    availableModels?: Array<Record<string, unknown>>;
     outcome?: {
       outcome?: string;
       optionId?: string;
@@ -246,7 +250,13 @@ export class AcpSdkBackend implements AgentBackend {
   }>();
 
   /** Cache available commands from server */
-  private availableCommands: Array<{ name: string; description: string }> = [];
+  private availableCommands: Array<{ name: string; description?: string }> = [];
+
+  /** Cache available modes from server */
+  private availableModes: Array<Record<string, unknown>> = [];
+
+  /** Cache available models from server */
+  private availableModels: Array<Record<string, unknown>> = [];
 
   /** Track active edits for diff extraction */
   private activeEdits = new Map<string, {
@@ -456,6 +466,17 @@ export class AcpSdkBackend implements AgentBackend {
     name: string,
     args: string[]
   ): Promise<void> {
+    if (name !== 'help') {
+      const available = this.availableCommands || [];
+      if (available.length > 0 && !available.some((command) => command.name === name)) {
+        this.emit({
+          type: 'terminal-output',
+          data: `Unknown command: /${name}. Type /help for available commands.`,
+        });
+        return;
+      }
+    }
+
     switch (name) {
       case 'compact':
         logger.debug(`[AcpSdkBackend] Executing /compact command`);
@@ -963,7 +984,7 @@ export class AcpSdkBackend implements AgentBackend {
     const sessionUpdateType = update.sessionUpdate;
     
     // Log session updates for debugging (but not every chunk to avoid log spam)
-    if (sessionUpdateType !== 'agent_message_chunk') {
+    if (sessionUpdateType !== 'agent_message_chunk' && sessionUpdateType !== 'user_message_chunk') {
       logger.debug(`[AcpSdkBackend] Received session update: ${sessionUpdateType}`, JSON.stringify({
         sessionUpdate: sessionUpdateType,
         toolCallId: update.toolCallId,
@@ -1018,6 +1039,24 @@ export class AcpSdkBackend implements AgentBackend {
             this.idleTimeout = null;
           }, 500); // 500ms delay to batch chunks (reduced from 500ms, but still enough for options)
         }
+      }
+    }
+
+    // Handle user message chunks
+    if (sessionUpdateType === 'user_message_chunk') {
+      let delta: string | undefined;
+
+      if (typeof update.delta === 'string') {
+        delta = update.delta;
+      } else if (update.content && typeof update.content === 'object' && 'text' in update.content && typeof update.content.text === 'string') {
+        delta = update.content.text;
+      }
+
+      if (delta) {
+        this.emit({
+          type: 'model-output',
+          textDelta: delta,
+        });
       }
     }
 
@@ -1120,12 +1159,12 @@ export class AcpSdkBackend implements AgentBackend {
         // Tool call finished - remove from active set and clear timeout
         const startTime = this.toolCallStartTimes.get(toolCallId);
         const duration = startTime ? Date.now() - startTime : null;
-        const toolKind: string = typeof update.kind === 'string' ? update.kind : 'unknown';
+        const toolKind = update.kind || 'unknown';
 
         // Extract diff content from edit tools
-        const content = Array.isArray(update.content) ? update.content : [];
-        const diffContent = content.find((c: any) =>
-          c.type === 'diff' && 'path' in c && 'oldText' in c && 'newText' in c
+        const content = update.content || [];
+        const diffContent = (content as { find?: (predicate: (value: any) => boolean) => unknown }).find?.(
+          (c: any) => c.type === 'diff' && 'path' in c && 'oldText' in c && 'newText' in c
         );
 
         if (diffContent && toolKind === 'edit') {
@@ -1158,7 +1197,8 @@ export class AcpSdkBackend implements AgentBackend {
           callId: toolCallId,
         });
 
-        if (toolKind === 'todowrite') {
+        const todowriteKind: string = typeof update.kind === 'string' ? update.kind : 'unknown';
+        if (todowriteKind === 'todowrite') {
           let todos: Array<{ content: string; status: string }> | null = null;
 
           if (Array.isArray(update.content)) {
@@ -1371,10 +1411,22 @@ export class AcpSdkBackend implements AgentBackend {
     
     // Handle available_commands_update - cache available commands from server
     if (sessionUpdateType === 'available_commands_update') {
-      this.availableCommands = update.availableCommands;
+      this.availableCommands = update.availableCommands || [];
       logger.debug(`[AcpSdkBackend] Available commands updated:`,
         this.availableCommands?.map(c => c.name).join(', ')
       );
+    }
+
+    // Handle available_modes_update - cache available modes from server
+    if (sessionUpdateType === 'available_modes_update') {
+      this.availableModes = Array.isArray(update.availableModes) ? update.availableModes : [];
+      logger.debug(`[AcpSdkBackend] Available modes updated:`, JSON.stringify(this.availableModes));
+    }
+
+    // Handle available_models_update - cache available models from server
+    if (sessionUpdateType === 'available_models_update') {
+      this.availableModels = Array.isArray(update.availableModels) ? update.availableModels : [];
+      logger.debug(`[AcpSdkBackend] Available models updated:`, JSON.stringify(this.availableModels));
     }
 
 // Handle permission.asked - user selected a permission option from OpenCode UI
@@ -1505,8 +1557,8 @@ export class AcpSdkBackend implements AgentBackend {
           let args: Record<string, unknown> = {};
           if (Array.isArray(update.content)) {
             args = { items: update.content };
-          } else if (update.content && typeof update.content === 'object') {
-            args = update.content;
+          } else if (update.content && typeof update.content === 'object' && update.content !== null) {
+            args = update.content as Record<string, unknown>;
           }
           
           // Extract locations if present (for file operations)
@@ -1518,7 +1570,7 @@ export class AcpSdkBackend implements AgentBackend {
           
           this.emit({
             type: 'tool-call',
-            toolName: update.kind || 'unknown',
+            toolName: typeof update.kind === 'string' ? update.kind : 'unknown',
             args,
             callId: toolCallId,
           });
@@ -1542,10 +1594,14 @@ export class AcpSdkBackend implements AgentBackend {
     
     // Log unhandled session update types for debugging
     if (sessionUpdateType && 
-        sessionUpdateType !== 'agent_message_chunk' && 
+        sessionUpdateType !== 'agent_message_chunk' &&
+        sessionUpdateType !== 'user_message_chunk' &&
         sessionUpdateType !== 'tool_call_update' &&
         sessionUpdateType !== 'agent_thought_chunk' &&
         sessionUpdateType !== 'tool_call' &&
+        sessionUpdateType !== 'available_commands_update' &&
+        sessionUpdateType !== 'available_modes_update' &&
+        sessionUpdateType !== 'available_models_update' &&
         sessionUpdateType !== ('permission.asked' as any) &&
         !update.messageChunk &&
         !update.plan &&

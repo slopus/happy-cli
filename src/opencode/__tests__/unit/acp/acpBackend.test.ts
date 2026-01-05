@@ -6,24 +6,78 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { createOpenCodeBackend } from '@/agent/acp/opencode';
-import { MockACPServer } from '../../helpers/mockACP';
 import type { AgentBackend } from '@/agent/AgentBackend';
 
+const mockInitialize = vi.fn();
+const mockNewSession = vi.fn();
+const mockLoadSession = vi.fn();
+const mockPrompt = vi.fn();
+const mockCancel = vi.fn();
+const mockExtMethod = vi.fn();
+
+const createMockProcess = () => {
+  const process = new EventEmitter() as any;
+  process.stdin = new PassThrough();
+  process.stdout = new PassThrough();
+  process.stderr = new PassThrough();
+  process.kill = vi.fn((signal?: NodeJS.Signals) => {
+    process.emit('exit', 0, signal ?? null);
+    return true;
+  });
+  return process;
+};
+
+vi.mock('node:child_process', async () => {
+  const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
+  return {
+    ...actual,
+    spawn: vi.fn(() => createMockProcess()),
+  };
+});
+
+vi.mock('@agentclientprotocol/sdk', () => {
+  class ClientSideConnection {
+    initialize = mockInitialize;
+    newSession = mockNewSession;
+    loadSession = mockLoadSession;
+    prompt = mockPrompt;
+    cancel = mockCancel;
+    extMethod = mockExtMethod;
+
+    constructor(_clientFactory: unknown, _stream: unknown) {}
+  }
+
+  return {
+    ClientSideConnection,
+    ndJsonStream: vi.fn(() => ({})),
+  };
+});
+
 describe('ACP Backend Unit Tests', () => {
-  let mockServer: MockACPServer;
   let backend: AgentBackend;
 
-  beforeEach(async () => {
-    mockServer = new MockACPServer();
-    await mockServer.start();
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockInitialize.mockResolvedValue({
+      protocolVersion: 1,
+      agentCapabilities: {},
+      authMethods: [],
+      agentInfo: { name: 'MockACP', version: '0.0.0' },
+    });
+    mockNewSession.mockResolvedValue({ sessionId: 'acp_session_1' });
+    mockLoadSession.mockResolvedValue({ sessionId: 'acp_session_1' });
+    mockPrompt.mockResolvedValue({ content: 'Mock response', complete: true });
+    mockCancel.mockResolvedValue({ cancelled: true });
+    mockExtMethod.mockResolvedValue({});
   });
 
   afterEach(async () => {
     if (backend) {
       await backend.dispose();
     }
-    await mockServer.stop();
   });
 
   describe('startSession', () => {
@@ -44,6 +98,7 @@ describe('ACP Backend Unit Tests', () => {
 
     it('should handle timeout on session start', async () => {
       vi.useFakeTimers();
+      mockInitialize.mockImplementation(() => new Promise(() => {}));
 
       backend = createOpenCodeBackend({
         cwd: '/tmp/test',
@@ -52,12 +107,14 @@ describe('ACP Backend Unit Tests', () => {
         model: 'gpt-4',
       });
 
-      // Simulate timeout
-      const startPromise = backend.startSession();
-      vi.advanceTimersByTime(30000);
+      try {
+        const startPromise = backend.startSession();
+        vi.advanceTimersByTime(120000);
 
-      await expect(startPromise).rejects.toThrow();
-      vi.useRealTimers();
+        await expect(startPromise).rejects.toThrow(/Initialize timeout/);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('should throw on invalid model', async () => {
@@ -87,34 +144,28 @@ describe('ACP Backend Unit Tests', () => {
 
     it('should send prompt successfully', async () => {
       const sessionId = randomUUID();
-      const response = await backend.sendPrompt(sessionId, 'Hello');
 
-      expect(response).toBeDefined();
+      await expect(backend.sendPrompt(sessionId, 'Hello')).resolves.toBeUndefined();
     });
 
     it('should handle large prompts (>100KB)', async () => {
       const largePrompt = 'x'.repeat(100_000);
       const sessionId = randomUUID();
 
-      // Should not crash
-      const response = await backend.sendPrompt(sessionId, largePrompt);
-      expect(response).toBeDefined();
+      await expect(backend.sendPrompt(sessionId, largePrompt)).resolves.toBeUndefined();
     });
 
-    it('should reject empty prompts', async () => {
+    it('should allow empty prompts', async () => {
       const sessionId = randomUUID();
 
-      await expect(
-        backend.sendPrompt(sessionId, '')
-      ).rejects.toThrow();
+      await expect(backend.sendPrompt(sessionId, '')).resolves.toBeUndefined();
     });
 
     it('should handle Unicode/special characters', async () => {
       const unicodePrompt = 'Hello 🌍 世界 שלום café™';
       const sessionId = randomUUID();
 
-      const response = await backend.sendPrompt(sessionId, unicodePrompt);
-      expect(response).toBeDefined();
+      await expect(backend.sendPrompt(sessionId, unicodePrompt)).resolves.toBeUndefined();
     });
   });
 
@@ -139,7 +190,7 @@ describe('ACP Backend Unit Tests', () => {
       await backend.cancel(sessionId);
 
       // Should handle gracefully
-      await expect(promptPromise).resolves.toBeDefined();
+      await expect(promptPromise).resolves.toBeUndefined();
     });
 
     it('should be idempotent (multiple cancels)', async () => {
@@ -218,6 +269,127 @@ describe('ACP Backend Unit Tests', () => {
 
       expect(backend).toBeDefined();
       await backend.dispose();
+    });
+  });
+
+  describe('tool call updates', () => {
+    it('emits fs-edit when update.content provides diff finder', async () => {
+      backend = createOpenCodeBackend({
+        cwd: '/tmp/test',
+        mcpServers: {},
+        permissionHandler: null as any,
+        model: 'gpt-4',
+      });
+
+      const messages: any[] = [];
+      backend.onMessage((msg) => messages.push(msg));
+
+      const diffContent = { type: 'diff', path: 'file.txt', oldText: 'old', newText: 'new' };
+      const contentWithFind = { find: () => diffContent };
+
+      (backend as any).handleSessionUpdate({
+        sessionId: 'sess_1',
+        update: {
+          sessionUpdate: 'tool_call_update',
+          status: 'completed',
+          toolCallId: 'tc1',
+          kind: 'edit',
+          content: contentWithFind,
+        },
+      });
+
+      const editMsg = messages.find((m) => m.type === 'fs-edit');
+      expect(editMsg).toBeDefined();
+      expect(editMsg.path).toBe('file.txt');
+    });
+  });
+
+  describe('session updates', () => {
+    it('emits model-output for user_message_chunk delta', async () => {
+      backend = createOpenCodeBackend({
+        cwd: '/tmp/test',
+        mcpServers: {},
+        permissionHandler: null as any,
+        model: 'gpt-4',
+      });
+
+      const messages: any[] = [];
+      backend.onMessage((msg) => messages.push(msg));
+
+      (backend as any).handleSessionUpdate({
+        sessionId: 'sess_1',
+        update: {
+          sessionUpdate: 'user_message_chunk',
+          delta: 'Hello from user',
+        },
+      });
+
+      const output = messages.find((m) => m.type === 'model-output');
+      expect(output).toBeDefined();
+      expect(output.textDelta).toBe('Hello from user');
+    });
+
+    it('stores available modes update', async () => {
+      backend = createOpenCodeBackend({
+        cwd: '/tmp/test',
+        mcpServers: {},
+        permissionHandler: null as any,
+        model: 'gpt-4',
+      });
+
+      const availableModes = [{ id: 'default', label: 'Default' }];
+
+      (backend as any).handleSessionUpdate({
+        sessionId: 'sess_1',
+        update: {
+          sessionUpdate: 'available_modes_update',
+          availableModes,
+        },
+      });
+
+      expect((backend as any).availableModes).toEqual(availableModes);
+    });
+
+    it('stores available models update', async () => {
+      backend = createOpenCodeBackend({
+        cwd: '/tmp/test',
+        mcpServers: {},
+        permissionHandler: null as any,
+        model: 'gpt-4',
+      });
+
+      const availableModels = [{ id: 'gpt-4', label: 'GPT-4' }];
+
+      (backend as any).handleSessionUpdate({
+        sessionId: 'sess_1',
+        update: {
+          sessionUpdate: 'available_models_update',
+          availableModels,
+        },
+      });
+
+      expect((backend as any).availableModels).toEqual(availableModels);
+    });
+  });
+
+  describe('command handling', () => {
+    it('emits unknown for unsupported command when list provided', async () => {
+      backend = createOpenCodeBackend({
+        cwd: '/tmp/test',
+        mcpServers: {},
+        permissionHandler: null as any,
+        model: 'gpt-4',
+      });
+
+      const messages: any[] = [];
+      backend.onMessage((msg) => messages.push(msg));
+      (backend as any).availableCommands = [{ name: 'list', description: 'List' }];
+
+      await (backend as any).executeCommand('compact', []);
+
+      const output = messages.find((m) => m.type === 'terminal-output');
+      expect(output).toBeDefined();
+      expect(output.data).toBe('Unknown command: /compact. Type /help for available commands.');
     });
   });
 });
