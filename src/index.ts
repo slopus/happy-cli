@@ -238,6 +238,84 @@ import { execFileSync } from 'node:child_process'
       process.exit(1)
     }
     return;
+  } else if (subcommand === 'opencode') {
+    try {
+      const { runOpenCode } = await import('@/opencode/runOpenCode');
+      
+      let startedBy: 'daemon' | 'terminal' | undefined = undefined;
+      let model: string | undefined = undefined;
+      let provider: string | undefined = undefined;
+      let permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions' = 'default';
+      let baseUrl: string | undefined = undefined;
+      
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--started-by') {
+          startedBy = args[++i] as 'daemon' | 'terminal';
+        } else if (args[i] === '--model' || args[i] === '-m') {
+          model = args[++i];
+        } else if (args[i] === '--provider' || args[i] === '-p') {
+          provider = args[++i];
+        } else if (args[i] === '--yolo' || args[i] === '--dangerously-skip-permissions') {
+          permissionMode = 'bypassPermissions';
+        } else if (args[i] === '--accept-edits') {
+          permissionMode = 'acceptEdits';
+        } else if (args[i] === '--base-url') {
+          baseUrl = args[++i];
+        } else if (args[i] === '-h' || args[i] === '--help') {
+          console.log(`
+${chalk.bold('happy opencode')} - OpenCode integration
+
+${chalk.bold('Usage:')}
+  happy opencode [options]
+
+${chalk.bold('Options:')}
+  -m, --model <model>           Model to use (e.g., claude-3-5-sonnet)
+  -p, --provider <provider>     Provider ID (e.g., anthropic, openrouter)
+  --yolo                        Bypass all permissions
+  --accept-edits                Auto-accept file edit permissions
+  --base-url <url>              OpenCode API URL (default: http://localhost:4096)
+  -h, --help                    Show this help
+
+${chalk.bold('Examples:')}
+  happy opencode                 Start with default settings
+  happy opencode --yolo          Start with all permissions bypassed
+  happy opencode -m gpt-4o       Use specific model
+
+${chalk.bold('Note:')} OpenCode must be running locally (opencode --server)
+`);
+          process.exit(0);
+        }
+      }
+      
+      const { credentials } = await authAndSetupMachineIfNeeded();
+
+      logger.debug('Ensuring Happy background service is running & matches our version...');
+      if (!(await isDaemonRunningCurrentlyInstalledHappyVersion())) {
+        logger.debug('Starting Happy background service...');
+        const daemonProcess = spawnHappyCLI(['daemon', 'start-sync'], {
+          detached: true,
+          stdio: 'ignore',
+          env: process.env
+        });
+        daemonProcess.unref();
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+
+      await runOpenCode(credentials, {
+        model,
+        provider,
+        permissionMode,
+        startedBy,
+        baseUrl
+      });
+    } catch (error) {
+      console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
+      if (process.env.DEBUG) {
+        console.error(error)
+      }
+      process.exit(1)
+    }
+    return;
   } else if (subcommand === 'logout') {
     // Keep for backward compatibility - redirect to auth logout
     console.log(chalk.yellow('Note: "happy logout" is deprecated. Use "happy auth logout" instead.\n'));
@@ -444,6 +522,7 @@ ${chalk.bold('Usage:')}
   happy auth              Manage authentication
   happy codex             Start Codex mode
   happy gemini            Start Gemini mode (ACP)
+  happy opencode          Start OpenCode mode (HTTP API)
   happy connect           Connect AI vendor API keys
   happy notify            Send push notification
   happy daemon            Manage background service that allows
