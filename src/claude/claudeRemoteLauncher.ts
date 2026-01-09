@@ -327,6 +327,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                 const remoteResult = await claudeRemote({
                     sessionId: session.sessionId,
                     path: session.path,
+                    sessionPath: session.sessionInfo?.path,
                     allowedTools: session.allowedTools ?? [],
                     mcpServers: session.mcpServers,
                     hookSettingsPath: session.hookSettingsPath,
@@ -363,10 +364,10 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                         // Exit
                         return null;
                     },
-                    onSessionFound: (sessionId) => {
+                    onSessionFound: (sessionId, sessionPath) => {
                         // Update converter's session ID when new session is found
                         sdkToLogConverter.updateSessionId(sessionId);
-                        session.onSessionFound(sessionId);
+                        session.onSessionFound(sessionId, sessionPath);
                     },
                     onThinkingChange: session.onThinkingChange,
                     claudeEnvVars: session.claudeEnvVars,

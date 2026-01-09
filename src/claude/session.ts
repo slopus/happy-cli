@@ -3,6 +3,11 @@ import { MessageQueue2 } from "@/utils/MessageQueue2";
 import { EnhancedMode } from "./loop";
 import { logger } from "@/ui/logger";
 
+interface SessionInfo {
+    id: string;
+    path: string;
+}
+
 export class Session {
     readonly path: string;
     readonly logPath: string;
@@ -17,7 +22,7 @@ export class Session {
     /** Path to temporary settings file with SessionStart hook (required for session tracking) */
     readonly hookSettingsPath: string;
 
-    sessionId: string | null;
+    sessionInfo: SessionInfo | null;
     mode: 'local' | 'remote' = 'local';
     thinking: boolean = false;
     
@@ -33,6 +38,7 @@ export class Session {
         path: string,
         logPath: string,
         sessionId: string | null,
+        sessionPath?: string,
         claudeEnvVars?: Record<string, string>,
         claudeArgs?: string[],
         mcpServers: Record<string, any>,
@@ -46,7 +52,10 @@ export class Session {
         this.api = opts.api;
         this.client = opts.client;
         this.logPath = opts.logPath;
-        this.sessionId = opts.sessionId;
+        this.sessionInfo = opts.sessionId ? {
+            id: opts.sessionId,
+            path: opts.sessionPath ?? opts.path
+        } : null;
         this.queue = opts.messageQueue;
         this.claudeEnvVars = opts.claudeEnvVars;
         this.claudeArgs = opts.claudeArgs;
@@ -60,6 +69,10 @@ export class Session {
         this.keepAliveInterval = setInterval(() => {
             this.client.keepAlive(this.thinking, this.mode);
         }, 2000);
+    }
+
+    get sessionId(): string | null {
+        return this.sessionInfo?.id ?? null;
     }
     
     /**
@@ -93,8 +106,11 @@ export class Session {
      * Updates internal state, syncs to API metadata, and notifies
      * all registered callbacks (e.g., SessionScanner) about the change.
      */
-    onSessionFound = (sessionId: string) => {
-        this.sessionId = sessionId;
+    onSessionFound = (sessionId: string, sessionPath?: string) => {
+        this.sessionInfo = {
+            id: sessionId,
+            path: sessionPath ?? this.path
+        };
         
         // Update metadata with Claude Code session ID
         this.client.updateMetadata((metadata) => ({
@@ -130,7 +146,7 @@ export class Session {
      * Clear the current session ID (used by /clear command)
      */
     clearSessionId = (): void => {
-        this.sessionId = null;
+        this.sessionInfo = null;
         logger.debug('[Session] Session ID cleared');
     }
 
