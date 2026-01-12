@@ -345,6 +345,12 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
         // actually changes (e.g., new session started or /clear command used).
         // See: https://github.com/anthropics/happy-cli/issues/143
         let previousSessionId: string | null = null;
+
+        // Track consecutive crashes to prevent infinite restart loops
+        // Resets to 0 on successful message exchange
+        let consecutiveCrashes = 0;
+        const MAX_CONSECUTIVE_CRASHES = 3;
+
         while (!exitReason) {
             logger.debug('[remote]: launch');
             messageBuffer.addMessage('═'.repeat(40), 'status');
@@ -440,15 +446,20 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                 
                 // Consume one-time Claude flags after spawn
                 session.consumeOneTimeFlags();
-                
+
+                // Reset crash counter on successful completion
+                consecutiveCrashes = 0;
+
                 if (!exitReason && abortController.signal.aborted) {
                     session.client.sendSessionEvent({ type: 'message', message: 'Aborted by user' });
                 }
             } catch (e) {
                 const abortError = isAbortError(e);
+                const errorInfo = getLaunchErrorInfo(e);
                 logger.debug('[remote]: launch error', {
-                    ...getLaunchErrorInfo(e),
+                    ...errorInfo,
                     abortError,
+                    consecutiveCrashes,
                 });
 
                 if (!exitReason) {
@@ -459,7 +470,31 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                         continue;
                     }
 
-                    session.client.sendSessionEvent({ type: 'message', message: 'Process exited unexpectedly' });
+                    consecutiveCrashes++;
+
+                    // Check if we've hit the crash limit
+                    if (consecutiveCrashes >= MAX_CONSECUTIVE_CRASHES) {
+                        logger.debug(`[remote]: Max consecutive crashes (${MAX_CONSECUTIVE_CRASHES}) reached, stopping`);
+                        session.client.sendSessionEvent({
+                            type: 'message',
+                            message: `Session stopped after ${MAX_CONSECUTIVE_CRASHES} consecutive crashes. Please try again.`
+                        });
+                        break; // Exit the while loop instead of continuing
+                    }
+
+                    // Provide more helpful message based on error
+                    const isProcessExit = errorInfo.message?.includes('exited with code');
+                    if (isProcessExit) {
+                        session.client.sendSessionEvent({
+                            type: 'message',
+                            message: `Claude process crashed, restarting... (attempt ${consecutiveCrashes}/${MAX_CONSECUTIVE_CRASHES})`
+                        });
+                    } else {
+                        session.client.sendSessionEvent({
+                            type: 'message',
+                            message: `Process exited unexpectedly, restarting... (attempt ${consecutiveCrashes}/${MAX_CONSECUTIVE_CRASHES})`
+                        });
+                    }
                     continue;
                 }
             } finally {
