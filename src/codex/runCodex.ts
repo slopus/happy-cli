@@ -28,6 +28,7 @@ import { notifyDaemonSessionStarted } from "@/daemon/controlClient";
 import { registerKillSessionHandler } from "@/claude/registerKillSessionHandler";
 import { delay } from "@/utils/time";
 import { stopCaffeinate } from "@/utils/caffeinate";
+import { parseSpecialCommand } from '@/parsers/specialCommands';
 
 type ReadyEventOptions = {
     pending: unknown;
@@ -176,7 +177,13 @@ export async function runCodex(opts: {
             permissionMode: messagePermissionMode || 'default',
             model: messageModel,
         };
-        messageQueue.push(message.content.text, enhancedMode);
+
+        const specialCommand = parseSpecialCommand(message.content.text);
+        if (specialCommand.type === 'clear') {
+            messageQueue.pushIsolateAndClear(message.content.text, enhancedMode);
+        } else {
+            messageQueue.push(message.content.text, enhancedMode);
+        }
     });
     let thinking = false;
     session.keepAlive(thinking, 'remote');
@@ -240,7 +247,7 @@ export async function runCodex(opts: {
                 storedSessionIdForResume = client.storeSessionForResume();
                 logger.debug('[Codex] Stored session for resume:', storedSessionIdForResume);
             }
-            
+
             abortController.abort();
             messageQueue.reset();
             permissionHandler.reset();
@@ -275,7 +282,7 @@ export async function runCodex(opts: {
                     archivedBy: 'cli',
                     archiveReason: 'User terminated'
                 }));
-                
+
                 // Send session death message
                 session.sendSessionDeath();
                 await session.flush();
@@ -616,6 +623,30 @@ export async function runCodex(opts: {
             messageBuffer.addMessage(message.message, 'user');
             currentModeHash = message.hash;
 
+            const specialCommand = parseSpecialCommand(message.message);
+            if (specialCommand.type === 'clear') {
+                logger.debug('[Codex] Handling /clear command - resetting session');
+                client.clearSession();
+                wasCreated = false;
+                currentModeHash = null;
+
+                // Reset processors/permissions
+                permissionHandler.reset();
+                reasoningProcessor.abort();
+                diffProcessor.reset();
+                thinking = false;
+                session.keepAlive(thinking, 'remote');
+
+                messageBuffer.addMessage('Session reset.', 'status');
+                emitReadyIfIdle({
+                    pending,
+                    queueSize: () => messageQueue.size(),
+                    shouldExit,
+                    sendReady,
+                });
+                continue;
+            }
+
             try {
                 // Map permission mode to approval policy and sandbox for startSession
                 const approvalPolicy = (() => {
@@ -645,10 +676,10 @@ export async function runCodex(opts: {
                     if (message.mode.model) {
                         startConfig.model = message.mode.model;
                     }
-                    
+
                     // Check for resume file from multiple sources
                     let resumeFile: string | null = null;
-                    
+
                     // Priority 1: Explicit resume file from mode change
                     if (nextExperimentalResume) {
                         resumeFile = nextExperimentalResume;
@@ -665,12 +696,12 @@ export async function runCodex(opts: {
                         }
                         storedSessionIdForResume = null; // consume once
                     }
-                    
+
                     // Apply resume file if found
                     if (resumeFile) {
                         (startConfig.config as any).experimental_resume = resumeFile;
                     }
-                    
+
                     await client.startSession(
                         startConfig,
                         { signal: abortController.signal }
@@ -687,7 +718,7 @@ export async function runCodex(opts: {
             } catch (error) {
                 logger.warn('Error in codex session:', error);
                 const isAbortError = error instanceof Error && error.name === 'AbortError';
-                
+
                 if (isAbortError) {
                     messageBuffer.addMessage('Aborted by user', 'status');
                     session.sendSessionEvent({ type: 'message', message: 'Aborted by user' });
