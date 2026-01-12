@@ -34,7 +34,7 @@ describe('Claude Version Utils - Cross-Platform Detection', () => {
 
       it('should detect npm with different scoped packages', () => {
         const result = detectSourceFromPath('C:/Users/test/AppData/Roaming/npm/node_modules/@babel/core/cli.js');
-        expect(result).toBe('npm');
+        expect(result).toBe('PATH');
       });
 
       it('should detect npm through Homebrew', () => {

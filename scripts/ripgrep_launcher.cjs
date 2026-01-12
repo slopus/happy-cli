@@ -40,7 +40,7 @@ function findSystemRipgrep() {
         try {
             const result = execFileSync(cmd, args, {
                 encoding: 'utf8',
-                stdio: 'ignore'
+                stdio: ['ignore', 'pipe', 'ignore']
             });
 
             if (result) {
