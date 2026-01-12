@@ -16,6 +16,7 @@ export async function claudeRemote(opts: {
     // Fixed parameters
     sessionId: string | null,
     path: string,
+    sessionPath?: string,
     mcpServers?: Record<string, any>,
     claudeEnvVars?: Record<string, string>,
     claudeArgs?: string[],
@@ -31,7 +32,7 @@ export async function claudeRemote(opts: {
     isAborted: (toolCallId: string) => boolean,
 
     // Callbacks
-    onSessionFound: (id: string) => void,
+    onSessionFound: (id: string, sessionPath?: string) => void,
     onThinkingChange?: (thinking: boolean) => void,
     onMessage: (message: SDKMessage) => void,
     onCompletionEvent?: (message: string) => void,
@@ -40,7 +41,7 @@ export async function claudeRemote(opts: {
 
     // Check if session is valid
     let startFrom = opts.sessionId;
-    if (opts.sessionId && !claudeCheckSession(opts.sessionId, opts.path)) {
+    if (opts.sessionId && !claudeCheckSession(opts.sessionId, opts.path, opts.sessionPath)) {
         startFrom = null;
     }
     
@@ -178,10 +179,11 @@ export async function claudeRemote(opts: {
                 // Start a watcher for to detect the session id
                 if (systemInit.session_id) {
                     logger.debug(`[claudeRemote] Waiting for session file to be written to disk: ${systemInit.session_id}`);
-                    const projectDir = getProjectPath(opts.path);
+                    const sessionCwd = systemInit.cwd ?? opts.path;
+                    const projectDir = getProjectPath(sessionCwd);
                     const found = await awaitFileExist(join(projectDir, `${systemInit.session_id}.jsonl`));
                     logger.debug(`[claudeRemote] Session file found: ${systemInit.session_id} ${found}`);
-                    opts.onSessionFound(systemInit.session_id);
+                    opts.onSessionFound(systemInit.session_id, sessionCwd);
                 }
             }
 
