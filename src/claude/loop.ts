@@ -95,6 +95,11 @@ export async function loop(opts: LoopOptions) {
             if (opts.onModeChange) {
                 opts.onModeChange(mode);
             }
+
+            // Small delay to ensure remote mode stdin cleanup fully completes
+            // before local mode spawns child (prevents stdin listener competition)
+            await new Promise(resolve => setTimeout(resolve, 50));
+
             continue;
         }
     }

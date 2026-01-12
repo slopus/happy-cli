@@ -202,16 +202,45 @@ import { execFileSync } from 'node:child_process'
     
     // Handle gemini command (ACP-based agent)
     try {
+      // Check for special flags that should bypass our infrastructure
+      const specialFlags = ['--help', '--version', '-h', '-v'];
+      const hasSpecialFlag = args.slice(1).some(arg => specialFlags.includes(arg));
+
+      if (hasSpecialFlag) {
+        // Just spawn gemini directly and exit
+        const { spawn } = await import('child_process');
+        try {
+          const child = spawn('gemini', args.slice(1), { stdio: 'inherit' });
+          await new Promise<void>((resolve, reject) => {
+            child.on('close', () => resolve());
+            child.on('error', (err) => reject(err));
+          });
+        } catch (error: any) {
+          if (error.code === 'ENOENT') {
+            console.error(chalk.red('Error: Gemini CLI not found. Please install it with: npm install -g @google/gemini-cli'));
+            process.exit(1);
+          }
+          throw error;
+        }
+        return;
+      }
+
       const { runGemini } = await import('@/gemini/runGemini');
-      
-      // Parse startedBy argument
+
+      // Parse startedBy and startingMode arguments
       let startedBy: 'daemon' | 'terminal' | undefined = undefined;
+      let startingMode: 'local' | 'remote' | undefined = undefined;
+
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--started-by') {
           startedBy = args[++i] as 'daemon' | 'terminal';
+        } else if (args[i] === '--local') {
+          startingMode = 'local';
+        } else if (args[i] === '--remote') {
+          startingMode = 'remote';
         }
       }
-      
+
       const {
         credentials
       } = await authAndSetupMachineIfNeeded();
@@ -229,7 +258,7 @@ import { execFileSync } from 'node:child_process'
         await new Promise(resolve => setTimeout(resolve, 200));
       }
 
-      await runGemini({credentials, startedBy});
+      await runGemini({credentials, startedBy, startingMode});
     } catch (error) {
       console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
       if (process.env.DEBUG) {

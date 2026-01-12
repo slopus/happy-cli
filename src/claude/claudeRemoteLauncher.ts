@@ -441,14 +441,34 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
         // Clean up permission handler
         permissionHandler.reset();
 
-        // Reset Terminal
-        process.stdin.off('data', abort);
-        if (process.stdin.isTTY) {
-            process.stdin.setRawMode(false);
-        }
+        // Reset Terminal - IMPORTANT: Order matters to prevent stdin listener competition bug!
+        // Must unmount Ink BEFORE changing terminal modes to ensure useInput listeners are removed
         if (inkInstance) {
             inkInstance.unmount();
         }
+
+        // Remove explicit abort listener
+        process.stdin.off('data', abort);
+
+        // Reset terminal mode after Ink cleanup
+        if (process.stdin.isTTY) {
+            process.stdin.setRawMode(false);
+        }
+
+        // Additional cleanup: Ensure ALL stdin listeners are removed before switching to local mode
+        // This prevents parent and child from competing for stdin input (double character bug)
+        if (exitReason === 'switch') {
+            // Remove any remaining data listeners that might compete with the child process
+            const dataListeners = process.stdin.listeners('data');
+            const keypressListeners = process.stdin.listeners('keypress');
+
+            if (dataListeners.length > 0 || keypressListeners.length > 0) {
+                logger.debug(`[remote]: Cleaning up remaining stdin listeners before switch (data: ${dataListeners.length}, keypress: ${keypressListeners.length})`);
+                process.stdin.removeAllListeners('data');
+                process.stdin.removeAllListeners('keypress');
+            }
+        }
+
         messageBuffer.clear();
 
         // Resolve abort future

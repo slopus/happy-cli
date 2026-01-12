@@ -30,20 +30,23 @@ import {
 export interface GeminiBackendOptions extends AgentFactoryOptions {
   /** API key for Gemini (defaults to GEMINI_API_KEY or GOOGLE_API_KEY env var) */
   apiKey?: string;
-  
+
   /** OAuth token from Happy cloud (via 'happy connect gemini') - highest priority */
   cloudToken?: string;
-  
+
   /** Model to use. If undefined, will use local config, env var, or default.
    *  If explicitly set to null, will use default (skip local config).
    *  (defaults to GEMINI_MODEL env var or 'gemini-2.5-pro') */
   model?: string | null;
-  
+
   /** MCP servers to make available to the agent */
   mcpServers?: Record<string, McpServerConfig>;
-  
+
   /** Optional permission handler for tool approval */
   permissionHandler?: AcpPermissionHandler;
+
+  /** Session ID to resume (if available). Passed to Gemini CLI via --resume flag */
+  sessionId?: string | null;
 }
 
 /**
@@ -86,10 +89,17 @@ export function createGeminiBackend(options: GeminiBackendOptions): AgentBackend
   // If options.model is explicitly null, skip local config and use env/default
   const model = determineGeminiModel(options.model, localConfig);
 
-  // Build args - use only --experimental-acp flag
+  // Build args - start with --experimental-acp flag
   // Model is passed via GEMINI_MODEL env var (gemini CLI reads it automatically)
   // We don't use --model flag to avoid potential stdout conflicts with ACP protocol
   const geminiArgs = ['--experimental-acp'];
+
+  // Add --resume flag if session ID is provided
+  // This allows the Gemini CLI to resume an existing session, maintaining conversation history
+  if (options.sessionId) {
+    geminiArgs.push('--resume', options.sessionId);
+    logger.debug(`[Gemini] Resuming session: ${options.sessionId}`);
+  }
 
   const backendOptions: AcpSdkBackendOptions = {
     agentName: 'gemini',
