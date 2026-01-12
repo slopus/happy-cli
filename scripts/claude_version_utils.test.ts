@@ -32,7 +32,7 @@ describe('Claude Version Utils - Cross-Platform Detection', () => {
         expect(result).toBe('npm');
       });
 
-      it('should detect npm with different scoped packages', () => {
+      it('should not classify unrelated scoped npm packages as npm', () => {
         const result = detectSourceFromPath('C:/Users/test/AppData/Roaming/npm/node_modules/@babel/core/cli.js');
         expect(result).toBe('PATH');
       });

@@ -100,8 +100,6 @@ export interface TmuxSessionInfo {
     socket_path?: string;
     tmux_active: boolean;
     current_session?: string;
-    env_session?: string;
-    env_window?: string;
     env_pane?: string;
     available_sessions: string[];
 }
