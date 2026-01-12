@@ -351,6 +351,9 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
         let consecutiveCrashes = 0;
         const MAX_CONSECUTIVE_CRASHES = 3;
 
+        // Track last message sent to Claude for crash recovery resend
+        let lastSentMessage: { message: string; mode: EnhancedMode } | null = null;
+
         while (!exitReason) {
             logger.debug('[remote]: launch');
             messageBuffer.addMessage('═'.repeat(40), 'status');
@@ -386,10 +389,21 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                         return permissionHandler.isAborted(toolCallId);
                     },
                     nextMessage: async () => {
+                        // On crash recovery, resend the last message that was being processed (once only)
+                        if (consecutiveCrashes > 0 && lastSentMessage) {
+                            logger.debug('[remote]: resending last message after crash recovery (one-time)');
+                            const resend = lastSentMessage;
+                            // Clear immediately - only resend once, not on every subsequent crash
+                            lastSentMessage = null;
+                            permissionHandler.handleModeChange(resend.mode.permissionMode);
+                            return resend;
+                        }
+
                         if (pending) {
                             let p = pending;
                             pending = null;
                             permissionHandler.handleModeChange(p.mode.permissionMode);
+                            lastSentMessage = p;
                             return p;
                         }
 
@@ -405,10 +419,12 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                             modeHash = msg.hash;
                             mode = msg.mode;
                             permissionHandler.handleModeChange(mode.permissionMode);
-                            return {
+                            const result = {
                                 message: msg.message,
                                 mode: msg.mode
-                            }
+                            };
+                            lastSentMessage = result;
+                            return result;
                         }
 
                         // Exit
@@ -447,8 +463,9 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                 // Consume one-time Claude flags after spawn
                 session.consumeOneTimeFlags();
 
-                // Reset crash counter on successful completion
+                // Reset crash counter and clear last message on successful completion
                 consecutiveCrashes = 0;
+                lastSentMessage = null;
 
                 if (!exitReason && abortController.signal.aborted) {
                     session.client.sendSessionEvent({ type: 'message', message: 'Aborted by user' });
@@ -484,15 +501,17 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
 
                     // Provide more helpful message based on error
                     const isProcessExit = errorInfo.message?.includes('exited with code');
+                    const willResend = lastSentMessage !== null;
+                    const resendNote = willResend ? ' Your message will be resent.' : '';
                     if (isProcessExit) {
                         session.client.sendSessionEvent({
                             type: 'message',
-                            message: `Claude process crashed, restarting... (attempt ${consecutiveCrashes}/${MAX_CONSECUTIVE_CRASHES})`
+                            message: `Claude process crashed, restarting... (attempt ${consecutiveCrashes}/${MAX_CONSECUTIVE_CRASHES})${resendNote}`
                         });
                     } else {
                         session.client.sendSessionEvent({
                             type: 'message',
-                            message: `Process exited unexpectedly, restarting... (attempt ${consecutiveCrashes}/${MAX_CONSECUTIVE_CRASHES})`
+                            message: `Process exited unexpectedly, restarting... (attempt ${consecutiveCrashes}/${MAX_CONSECUTIVE_CRASHES})${resendNote}`
                         });
                     }
                     continue;
