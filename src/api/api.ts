@@ -320,7 +320,7 @@ export class ApiClient {
    * Get vendor API token from the server
    * Returns the token if it exists, null otherwise
    */
-  async getVendorToken(vendor: 'openai' | 'anthropic' | 'gemini'): Promise<any | null> {
+  async getVendorToken(vendor: 'openai' | 'anthropic' | 'gemini' | 'codebuddy'): Promise<any | null> {
     try {
       const response = await axios.get(
         `${configuration.serverUrl}/v1/connect/${vendor}/token`,

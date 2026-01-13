@@ -238,6 +238,137 @@ import { execFileSync } from 'node:child_process'
       process.exit(1)
     }
     return;
+  } else if (subcommand === 'codebuddy') {
+    // Handle codebuddy subcommands
+    const codebuddySubcommand = args[1];
+    
+    // Handle "happy codebuddy model set <model>" command
+    if (codebuddySubcommand === 'model' && args[2] === 'set' && args[3]) {
+      const modelName = args[3];
+      const validModels = ['claude-sonnet-4-20250514', 'claude-opus-4-20250514', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'];
+      
+      if (!validModels.includes(modelName)) {
+        console.error(`Invalid model: ${modelName}`);
+        console.error(`Available models: ${validModels.join(', ')}`);
+        process.exit(1);
+      }
+      
+      try {
+        const { existsSync, readFileSync, writeFileSync, mkdirSync } = require('fs');
+        const { join } = require('path');
+        const { homedir } = require('os');
+        
+        const configDir = join(homedir(), '.codebuddy');
+        const configPath = join(configDir, 'config.json');
+        
+        // Create directory if it doesn't exist
+        if (!existsSync(configDir)) {
+          mkdirSync(configDir, { recursive: true });
+        }
+        
+        // Read existing config or create new one
+        let config: any = {};
+        if (existsSync(configPath)) {
+          try {
+            config = JSON.parse(readFileSync(configPath, 'utf-8'));
+          } catch (error) {
+            // Ignore parse errors, start fresh
+            config = {};
+          }
+        }
+        
+        // Update model in config
+        config.model = modelName;
+        
+        // Write config back
+        writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+        console.log(`✓ Model set to: ${modelName}`);
+        console.log(`  Config saved to: ${configPath}`);
+        console.log(`  This model will be used in future sessions.`);
+        process.exit(0);
+      } catch (error) {
+        console.error('Failed to save model configuration:', error);
+        process.exit(1);
+      }
+    }
+    
+    // Handle "happy codebuddy model get" command
+    if (codebuddySubcommand === 'model' && args[2] === 'get') {
+      try {
+        const { existsSync, readFileSync } = require('fs');
+        const { join } = require('path');
+        const { homedir } = require('os');
+        
+        const configPaths = [
+          join(homedir(), '.codebuddy', 'config.json'),
+          join(homedir(), '.codebuddy', 'settings.json'),
+        ];
+        
+        let model: string | null = null;
+        for (const configPath of configPaths) {
+          if (existsSync(configPath)) {
+            try {
+              const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+              model = config.model || config.CODEBUDDY_MODEL || null;
+              if (model) break;
+            } catch (error) {
+              // Ignore parse errors
+            }
+          }
+        }
+        
+        if (model) {
+          console.log(`Current model: ${model}`);
+        } else if (process.env.CODEBUDDY_MODEL) {
+          console.log(`Current model: ${process.env.CODEBUDDY_MODEL} (from CODEBUDDY_MODEL env var)`);
+        } else {
+          console.log('Current model: claude-sonnet-4-20250514 (default)');
+        }
+        process.exit(0);
+      } catch (error) {
+        console.error('Failed to read model configuration:', error);
+        process.exit(1);
+      }
+    }
+    
+    // Handle codebuddy command (ACP-based agent)
+    try {
+      const { runCodebuddy } = await import('@/codebuddy/runCodebuddy');
+      
+      // Parse startedBy argument
+      let startedBy: 'daemon' | 'terminal' | undefined = undefined;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--started-by') {
+          startedBy = args[++i] as 'daemon' | 'terminal';
+        }
+      }
+      
+      const {
+        credentials
+      } = await authAndSetupMachineIfNeeded();
+
+      // Auto-start daemon for codebuddy (same as claude/gemini)
+      logger.debug('Ensuring Happy background service is running & matches our version...');
+      if (!(await isDaemonRunningCurrentlyInstalledHappyVersion())) {
+        logger.debug('Starting Happy background service...');
+        const daemonProcess = spawnHappyCLI(['daemon', 'start-sync'], {
+          detached: true,
+          stdio: 'ignore',
+          env: process.env
+        });
+        daemonProcess.unref();
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+
+      await runCodebuddy({credentials, startedBy});
+    } catch (error) {
+      console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
+      if (process.env.DEBUG) {
+        console.error(error)
+      }
+      process.exit(1)
+    }
+    return;
   } else if (subcommand === 'logout') {
     // Keep for backward compatibility - redirect to auth logout
     console.log(chalk.yellow('Note: "happy logout" is deprecated. Use "happy auth logout" instead.\n'));
@@ -451,6 +582,7 @@ ${chalk.bold('Usage:')}
   happy auth              Manage authentication
   happy codex             Start Codex mode
   happy gemini            Start Gemini mode (ACP)
+  happy codebuddy         Start CodeBuddy mode (ACP)
   happy connect           Connect AI vendor API keys
   happy notify            Send push notification
   happy daemon            Manage background service that allows
