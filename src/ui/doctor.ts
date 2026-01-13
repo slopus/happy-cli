@@ -28,9 +28,9 @@ function maskValue(value: string | undefined): string | undefined {
 function redactSettingsForDisplay(settings: any): any {
     const redacted = JSON.parse(JSON.stringify(settings ?? {}));
 
-    // Remove any CLI-local env cache; it may contain secrets.
-    if (redacted.localEnvironmentVariables) {
-        redacted.localEnvironmentVariables = {};
+    // Remove any legacy CLI-local env cache; it may contain secrets.
+    if ('localEnvironmentVariables' in redacted) {
+        delete redacted.localEnvironmentVariables;
     }
 
     if (Array.isArray(redacted.profiles)) {
