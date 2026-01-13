@@ -363,22 +363,11 @@ export async function startDaemon(): Promise<void> {
           const fullCommand = `node --no-warnings --no-deprecation ${cliPath} ${agent} --happy-starting-mode remote --started-by daemon`;
 
           // Spawn in tmux with environment variables
-          // IMPORTANT: Pass complete environment (process.env + extraEnv) because:
-          // 1. tmux sessions need daemon's expanded auth variables (e.g., ANTHROPIC_AUTH_TOKEN)
-          // 2. Regular spawn uses env: { ...process.env, ...extraEnv }
-          // 3. tmux needs explicit environment via -e flags to ensure all variables are available
+          // IMPORTANT: `spawnInTmux` uses `-e KEY=VALUE` flags for the window.
+          // Pass ONLY variables we want to override for the spawned agent (extraEnv),
+          // not the entire daemon process.env (which can be huge and may exceed tmux command limits).
           const windowName = `happy-${Date.now()}-${agent}`;
-          const tmuxEnv: Record<string, string> = {};
-
-          // Add all daemon environment variables (filtering out undefined)
-          for (const [key, value] of Object.entries(process.env)) {
-            if (value !== undefined) {
-              tmuxEnv[key] = value;
-            }
-          }
-
-          // Add extra environment variables (these should already be filtered)
-          Object.assign(tmuxEnv, extraEnv);
+          const tmuxEnv: Record<string, string> = { ...extraEnv };
 
           const tmuxResult = await tmux.spawnInTmux([fullCommand], {
             sessionName: tmuxSessionName,
@@ -394,6 +383,37 @@ export async function startDaemon(): Promise<void> {
               throw new Error('Tmux window created but no PID returned');
             }
 
+            // Resolve the actual tmux session name used (important when sessionName was empty/undefined)
+            const tmuxSession = tmuxResult.sessionId ? parseTmuxSessionIdentifier(tmuxResult.sessionId).session : (tmuxSessionName || 'happy');
+
+            // Optional: persist environment variables into the tmux session environment
+            // (so user-created windows inherit them). This can expose secrets via tmux show-environment,
+            // so it is opt-in via TMUX_UPDATE_ENVIRONMENT=true.
+            const shouldUpdateTmuxEnvironment =
+              profileEnv.TMUX_UPDATE_ENVIRONMENT !== undefined &&
+              ['true', '1', 'yes'].includes(String(extraEnv.TMUX_UPDATE_ENVIRONMENT).toLowerCase());
+
+            if (shouldUpdateTmuxEnvironment) {
+              const keysToSkip = new Set([
+                'TMUX_SESSION_NAME',
+                'TMUX_TMPDIR',
+                'TMUX_UPDATE_ENVIRONMENT',
+              ]);
+
+              // Persist ONLY profile-provided env vars (not auth/session env).
+              // Values are taken from expanded env so ${VAR} templates resolve correctly.
+              const entriesToSet = Object.keys(profileEnv)
+                .filter((key) => !keysToSkip.has(key))
+                .map((key) => [key, extraEnv[key]] as const)
+                .filter(([, value]) => value !== undefined);
+
+              for (const [key, value] of entriesToSet) {
+                await tmux.executeTmuxCommand(['set-environment', '-t', tmuxSession, key, String(value)]);
+              }
+
+              logger.debug(`[DAEMON RUN] Updated tmux session environment for ${tmuxSession}: ${entriesToSet.length} vars`);
+            }
+
             // Create a tracked session for tmux windows - now we have the real PID!
             const trackedSession: TrackedSession = {
               startedBy: 'daemon',
@@ -401,8 +421,8 @@ export async function startDaemon(): Promise<void> {
               tmuxSessionId: tmuxResult.sessionId,
               directoryCreated,
               message: directoryCreated
-                ? `The path '${directory}' did not exist. We created a new folder and spawned a new session in tmux session '${tmuxSessionName}'. Use 'tmux attach -t ${tmuxSessionName}' to view the session.`
-                : `Spawned new session in tmux session '${tmuxSessionName}'. Use 'tmux attach -t ${tmuxSessionName}' to view the session.`
+                ? `The path '${directory}' did not exist. We created a new folder and spawned a new session in tmux session '${tmuxSession}'. Use 'tmux attach -t ${tmuxSession}' to view the session.`
+                : `Spawned new session in tmux session '${tmuxSession}'. Use 'tmux attach -t ${tmuxSession}' to view the session.`
             };
 
             // Add to tracking map so webhook can find it later
