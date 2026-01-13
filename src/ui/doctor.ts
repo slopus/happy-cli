@@ -17,6 +17,65 @@ import { join } from 'node:path'
 import { projectPath } from '@/projectPath'
 import packageJson from '../../package.json'
 
+function maskValue(value: string | undefined): string | undefined {
+    if (value === undefined) return undefined;
+    if (value.trim() === '') return '<empty>';
+    // Treat ${VAR} templates as safe to display (they do not contain secrets themselves).
+    if (/^\$\{[^}]+\}$/.test(value)) return value;
+    return `<${value.length} chars>`;
+}
+
+function redactSettingsForDisplay(settings: any): any {
+    const redacted = JSON.parse(JSON.stringify(settings ?? {}));
+
+    // Remove any CLI-local env cache; it may contain secrets.
+    if (redacted.localEnvironmentVariables) {
+        redacted.localEnvironmentVariables = {};
+    }
+
+    if (Array.isArray(redacted.profiles)) {
+        redacted.profiles = redacted.profiles.map((profile: any) => {
+            const p = { ...profile };
+
+            if (p.anthropicConfig) {
+                p.anthropicConfig = {
+                    ...p.anthropicConfig,
+                    authToken: maskValue(p.anthropicConfig.authToken),
+                };
+            }
+            if (p.openaiConfig) {
+                p.openaiConfig = {
+                    ...p.openaiConfig,
+                    apiKey: maskValue(p.openaiConfig.apiKey),
+                };
+            }
+            if (p.azureOpenAIConfig) {
+                p.azureOpenAIConfig = {
+                    ...p.azureOpenAIConfig,
+                    apiKey: maskValue(p.azureOpenAIConfig.apiKey),
+                };
+            }
+            if (p.togetherAIConfig) {
+                p.togetherAIConfig = {
+                    ...p.togetherAIConfig,
+                    apiKey: maskValue(p.togetherAIConfig.apiKey),
+                };
+            }
+
+            if (Array.isArray(p.environmentVariables)) {
+                p.environmentVariables = p.environmentVariables.map((ev: any) => ({
+                    ...ev,
+                    value: maskValue(ev?.value),
+                }));
+            }
+
+            return p;
+        });
+    }
+
+    return redacted;
+}
+
 /**
  * Get relevant environment information for debugging
  */
@@ -120,7 +179,7 @@ export async function runDoctorCommand(filter?: 'all' | 'daemon'): Promise<void>
         try {
             const settings = await readSettings();
             console.log(chalk.bold('\n📄 Settings (settings.json):'));
-            console.log(chalk.gray(JSON.stringify(settings, null, 2)));
+            console.log(chalk.gray(JSON.stringify(redactSettingsForDisplay(settings), null, 2)));
         } catch (error) {
             console.log(chalk.bold('\n📄 Settings:'));
             console.log(chalk.red('❌ Failed to read settings'));
