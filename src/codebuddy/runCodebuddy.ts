@@ -30,7 +30,7 @@ import type { ApiSessionClient } from '@/api/apiSession';
 
 import { createCodebuddyBackend } from '@/agent/acp/codebuddy';
 import type { AgentBackend, AgentMessage } from '@/agent/AgentBackend';
-import { GeminiDisplay } from '@/ui/ink/GeminiDisplay';
+import { CodebuddyDisplay } from '@/ui/ink/CodebuddyDisplay';
 import { CodebuddyPermissionHandler } from '@/codebuddy/utils/permissionHandler';
 import { CodebuddyReasoningProcessor } from '@/codebuddy/utils/reasoningProcessor';
 import { CodebuddyDiffProcessor } from '@/codebuddy/utils/diffProcessor';
@@ -348,11 +348,10 @@ export async function runCodebuddy(opts: {
     console.clear();
     const DisplayComponent = () => {
       const currentModelValue = displayedModel || DEFAULT_CODEBUDDY_MODEL;
-      return React.createElement(GeminiDisplay, {
+      return React.createElement(CodebuddyDisplay, {
         messageBuffer,
         logPath: process.env.DEBUG ? logger.getLogPath() : undefined,
         currentModel: currentModelValue,
-        agentName: 'CodeBuddy',
         onExit: async () => {
           logger.debug('[codebuddy]: Exiting agent via Ctrl-C');
           shouldExit = true;

@@ -1,7 +1,7 @@
 /**
- * GeminiDisplay - Ink UI component for Gemini agent
+ * CodebuddyDisplay - Ink UI component for CodeBuddy agent
  * 
- * This component provides a terminal UI for the Gemini agent,
+ * This component provides a terminal UI for the CodeBuddy agent,
  * displaying messages, status, and handling user input.
  */
 
@@ -9,14 +9,14 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Box, Text, useStdout, useInput } from 'ink';
 import { MessageBuffer, type BufferedMessage } from './messageBuffer';
 
-interface GeminiDisplayProps {
+interface CodebuddyDisplayProps {
   messageBuffer: MessageBuffer;
   logPath?: string;
   currentModel?: string;
   onExit?: () => void;
 }
 
-export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, logPath, currentModel, onExit }) => {
+export const CodebuddyDisplay: React.FC<CodebuddyDisplayProps> = ({ messageBuffer, logPath, currentModel, onExit }) => {
   const [messages, setMessages] = useState<BufferedMessage[]>([]);
   const [confirmationMode, setConfirmationMode] = useState<boolean>(false);
   const [actionInProgress, setActionInProgress] = useState<boolean>(false);
@@ -112,10 +112,10 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
   const getMessageColor = (type: BufferedMessage['type']): string => {
     switch (type) {
       case 'user': return 'magenta';
-      case 'assistant': return 'cyan';
+      case 'assistant': return 'green';
       case 'system': return 'blue';
       case 'tool': return 'yellow';
-      case 'result': return 'green';
+      case 'result': return 'cyan';
       case 'status': return 'gray';
       default: return 'white';
     }
@@ -147,7 +147,7 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
         overflow="hidden"
       >
         <Box flexDirection="column" marginBottom={1}>
-          <Text color="cyan" bold>✨ Gemini Agent Messages</Text>
+          <Text color="green" bold>🚀 CodeBuddy Agent Messages</Text>
           <Text color="gray" dimColor>{'─'.repeat(Math.min(terminalWidth - 4, 60))}</Text>
         </Box>
 
@@ -166,11 +166,11 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
                   return false; // Don't show in UI
                 }
                 // Filter out status messages that are redundant (shown in status bar)
-                // But keep Thinking messages - they show agent's reasoning process (like Codex)
+                // But keep Thinking messages - they show agent's reasoning process
                 if (msg.type === 'system' && msg.content.startsWith('Using model:')) {
                   return false; // Don't show in UI - redundant with status bar
                 }
-                // Keep "Thinking..." and "[Thinking] ..." messages - they show agent's reasoning (like Codex)
+                // Keep "Thinking..." and "[Thinking] ..." messages - they show agent's reasoning
                 return true;
               })
               .slice(-Math.max(1, terminalHeight - 10))
@@ -192,7 +192,7 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
         borderColor={
           actionInProgress ? 'gray' :
           confirmationMode ? 'red' :
-          'cyan'
+          'green'
         }
         paddingX={2}
         justifyContent="center"
@@ -210,8 +210,8 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
             </Text>
           ) : (
             <>
-              <Text color="cyan" bold>
-                ✨ Gemini Agent Running • Ctrl-C to exit
+              <Text color="green" bold>
+                🚀 CodeBuddy Agent Running • Ctrl-C to exit
               </Text>
               {model && (
                 <Text color="gray" dimColor>
@@ -230,4 +230,3 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
     </Box>
   );
 };
-
