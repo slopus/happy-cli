@@ -1,18 +1,38 @@
 # Happy CLI Exit Code 1 Investigation
 
-**Status:** Ongoing
+**Status:** ROOT CAUSE IDENTIFIED
 **First observed:** 2026-01-13
 **Last updated:** 2026-01-13
 
 ## Summary
 
-Happy CLI intermittently crashes with exit code 1 approximately 400ms after Claude Code sends a result message. The crash:
-- Happens through Happy interface only (NOT when running Claude Code directly)
-- Occurs more frequently when Claude presents options
-- Produces no error message on stderr
-- Is NOT reproducible with minimal reproduction script
+Happy CLI crashes with exit code 1 when resuming sessions in stream-json mode. The crash is caused by Claude Code's **"only prompt commands are supported in streaming mode"** error.
 
-**Conclusion:** This is a Happy-internal issue, likely a race condition, NOT a Claude Code bug.
+**Root Cause:** GitHub issue [#16712](https://github.com/anthropics/claude-code/issues/16712) - When resuming with `--input-format stream-json`, Claude Code injects a synthetic "No response requested" message BEFORE reading stdin, breaking the message chain.
+
+---
+
+## CONFIRMED: Root Cause
+
+### Error Message (found in logs)
+```
+"only prompt commands are supported in streaming mode"
+```
+
+This error appears **27 times** in a single session log, confirming it's the primary issue.
+
+### Mechanism
+1. Happy starts session, Claude responds, session ends with pending state
+2. Happy resumes with `--resume <session-id> --input-format stream-json`
+3. **Claude Code injects:** `[assistant] "No response requested."` (synthetic)
+4. Happy sends user message via stdin
+5. **Claude Code rejects:** "only prompt commands are supported in streaming mode"
+6. Claude Code exits with code 1
+
+### Why This Happens
+Claude Code's stream-json resume behavior expects ONLY prompt commands (new user prompts). When Happy sends a continuation message after the synthetic injection, Claude Code rejects it.
+
+This is a **known Claude Code limitation**, not a Happy bug.
 
 ---
 
@@ -63,11 +83,13 @@ Our crash pattern differs - stdin stays open.
 
 ### 4. Synthetic Message Injection
 GitHub issue #16712 describes resume injecting "No response requested".
-Our crash happens during normal operation, not on resume with pending tool_use.
+**UPDATE:** This IS the cause. The error "only prompt commands are supported in streaming mode" appears 27 times in logs.
 
 ---
 
-## Hypothesis: Race Condition
+## SUPERSEDED: Previous Hypothesis (Race Condition)
+
+**Note:** The race condition hypothesis is now superseded by the confirmed root cause above. Keeping for historical reference.
 
 ### Concurrent Operations During Idle
 When Happy waits for next user message, multiple systems are active:
@@ -212,8 +234,34 @@ grep -B10 "Process exit: code=1" ~/.happy/logs/*.log
 
 ## Next Actions
 
-1. [ ] Wait for next crash with DEBUG enabled
-2. [ ] Analyze stderr output for actual error
-3. [ ] Add granular logging to claudeRemote.ts
-4. [ ] Review concurrent operation timing
-5. [ ] Consider adding mutex/lock around critical sections
+1. [x] ~~Wait for next crash with DEBUG enabled~~ - Done, found root cause
+2. [x] ~~Analyze stderr output for actual error~~ - Found "only prompt commands are supported in streaming mode"
+3. [ ] **Monitor GitHub issue #16712** for Claude Code fix
+4. [ ] **Potential workaround:** Don't use `--resume` with `--input-format stream-json` together
+5. [ ] **Alternative:** Start fresh session instead of resuming when in stream-json mode
+
+---
+
+## Potential Workarounds
+
+### Option 1: Avoid --resume with stream-json
+Instead of resuming, start a fresh session each time. Loses conversation context but avoids the bug.
+
+### Option 2: Use --continue instead of --resume
+May behave differently - needs testing.
+
+### Option 3: Wait for Claude Code fix
+GitHub issue #16712 is open. Anthropic may fix this in a future release.
+
+### Option 4: Write tool_result to session file directly
+The workaround mentioned in issue #16712 - fragile but works:
+1. Write tool_result directly to `~/.claude/projects/.../<session>.jsonl`
+2. Resume with a text prompt
+
+---
+
+## References
+
+- [GitHub Issue #16712](https://github.com/anthropics/claude-code/issues/16712) - Feature request to fix this behavior
+- [Claude Code Headless Docs](https://code.claude.com/docs/en/headless) - Official documentation
+- [Claude Agent SDK Spec](https://gist.github.com/SamSaffron/603648958a8c18ceae34939a8951d417) - Message format specification
