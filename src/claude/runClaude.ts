@@ -88,6 +88,9 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         host: os.hostname(),
         version: packageJson.version,
         os: os.platform(),
+        profileId: process.env.HAPPY_SESSION_PROFILE_ID !== undefined
+            ? (process.env.HAPPY_SESSION_PROFILE_ID.trim() ? process.env.HAPPY_SESSION_PROFILE_ID.trim() : null)
+            : undefined,
         machineId: machineId,
         homeDir: os.homedir(),
         happyHomeDir: configuration.happyHomeDir,
