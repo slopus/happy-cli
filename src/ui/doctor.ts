@@ -17,11 +17,11 @@ import { join } from 'node:path'
 import { projectPath } from '@/projectPath'
 import packageJson from '../../package.json'
 
-function maskValue(value: string | undefined): string | undefined {
+export function maskValue(value: string | undefined): string | undefined {
     if (value === undefined) return undefined;
     if (value.trim() === '') return '<empty>';
     // Treat ${VAR} templates as safe to display (they do not contain secrets themselves).
-    if (/^\$\{[^}]+\}$/.test(value)) return value;
+    if (/^\$\{[A-Z_][A-Z0-9_]*\}$/.test(value)) return value;
     return `<${value.length} chars>`;
 }
 
