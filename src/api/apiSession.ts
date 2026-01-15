@@ -27,14 +27,6 @@ export class ApiSessionClient extends EventEmitter {
     private encryptionKey: Uint8Array;
     private encryptionVariant: 'legacy' | 'dataKey';
 
-    private canSend(context: string, details?: Record<string, unknown>): boolean {
-        if (!this.socket.connected) {
-            logger.debug(`[API] Socket not connected, cannot send ${context}. Message will be lost.`, details);
-            return false;
-        }
-        return true;
-    }
-
     constructor(token: string, session: Session) {
         super()
         this.token = token;
@@ -202,9 +194,6 @@ export class ApiSessionClient extends EventEmitter {
 
         logger.debugLargeJson('[SOCKET] Sending message through socket:', content)
 
-        // Check if socket is connected before sending
-        if (!this.canSend('Claude session message', { type: body.type })) return;
-
         const encrypted = encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, content));
         this.socket.emit('message', {
             sid: this.sessionId,
@@ -244,9 +233,6 @@ export class ApiSessionClient extends EventEmitter {
             }
         };
         
-        // Check if socket is connected before sending
-        if (!this.canSend('Codex message', { type: body?.type })) return;
-
         const encrypted = encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, content));
         
         this.socket.emit('message', {
@@ -276,9 +262,6 @@ export class ApiSessionClient extends EventEmitter {
         
         logger.debug(`[SOCKET] Sending ${agentType} message:`, { type: body.type, hasMessage: !!body.message });
 
-        // Check if socket is connected before sending
-        if (!this.canSend(`${agentType} message`, { agentType, type: body?.type })) return;
-
         const encrypted = encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, content));
 
         this.socket.emit('message', {
@@ -296,9 +279,6 @@ export class ApiSessionClient extends EventEmitter {
     } | {
         type: 'ready'
     }, id?: string) {
-        // Check if socket is connected before doing work (encryption/UUID generation)
-        if (!this.canSend('session event', { eventType: event.type })) return;
-
         let content = {
             role: 'agent',
             content: {
@@ -356,8 +336,7 @@ export class ApiSessionClient extends EventEmitter {
                 cache_read: usage.cache_read_input_tokens || 0
             },
             cost: {
-                // TODO: Calculate actual costs based on pricing
-                // For now, using placeholder values
+                // Costs are not currently calculated (placeholder values).
                 total: 0,
                 input: 0,
                 output: 0
