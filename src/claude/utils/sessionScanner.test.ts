@@ -3,21 +3,28 @@ import { createSessionScanner } from './sessionScanner'
 import { RawJSONLines } from '../types'
 import { mkdir, writeFile, appendFile, rm, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { tmpdir, homedir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { existsSync } from 'node:fs'
+import { getProjectPath } from './path'
 
 describe('sessionScanner', () => {
   let testDir: string
   let projectDir: string
   let collectedMessages: RawJSONLines[]
   let scanner: Awaited<ReturnType<typeof createSessionScanner>> | null = null
+  let originalClaudeConfigDir: string | undefined
+  let claudeConfigDir: string
   
   beforeEach(async () => {
     testDir = join(tmpdir(), `scanner-test-${Date.now()}`)
     await mkdir(testDir, { recursive: true })
     
-    const projectName = testDir.replace(/\//g, '-')
-    projectDir = join(homedir(), '.claude', 'projects', projectName)
+    // Ensure the scanner and this test agree on where session files live.
+    // (getProjectPath uses CLAUDE_CONFIG_DIR + a sanitized project id derived from workingDirectory.)
+    originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    claudeConfigDir = join(testDir, 'claude-config');
+    process.env.CLAUDE_CONFIG_DIR = claudeConfigDir;
+    projectDir = getProjectPath(testDir);
     await mkdir(projectDir, { recursive: true })
     
     collectedMessages = []
@@ -30,6 +37,12 @@ describe('sessionScanner', () => {
       scanner = null
     }
     
+    if (originalClaudeConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
+    }
+
     if (existsSync(testDir)) {
       await rm(testDir, { recursive: true, force: true })
     }
