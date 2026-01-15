@@ -378,10 +378,12 @@ export class TmuxUtilities {
     private controlState: TmuxControlState = TmuxControlState.NORMAL;
     public readonly sessionName: string;
     private readonly tmuxCommandEnv?: Record<string, string>;
+    private readonly tmuxSocketPath?: string;
 
-    constructor(sessionName?: string, tmuxCommandEnv?: Record<string, string>) {
+    constructor(sessionName?: string, tmuxCommandEnv?: Record<string, string>, tmuxSocketPath?: string) {
         this.sessionName = sessionName || TmuxUtilities.DEFAULT_SESSION_NAME;
         this.tmuxCommandEnv = tmuxCommandEnv;
+        this.tmuxSocketPath = tmuxSocketPath;
     }
 
     /**
@@ -435,8 +437,9 @@ export class TmuxUtilities {
         let baseCmd = ['tmux'];
 
         // Add socket specification if provided
-        if (socketPath) {
-            baseCmd = ['tmux', '-S', socketPath];
+        const resolvedSocketPath = socketPath ?? this.tmuxSocketPath;
+        if (resolvedSocketPath) {
+            baseCmd = ['tmux', '-S', resolvedSocketPath];
         }
 
         // Handle send-keys with proper target specification
