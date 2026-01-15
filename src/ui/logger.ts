@@ -10,7 +10,8 @@ import { appendFileSync } from 'fs'
 import { configuration } from '@/configuration'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
-import { readDaemonState } from '@/persistence'
+// Note: readDaemonState is imported lazily inside listDaemonLogFiles() to avoid
+// circular dependency: logger.ts ↔ persistence.ts
 
 /**
  * Serialize a value for logging, with special handling for Error objects.
@@ -281,6 +282,8 @@ export async function listDaemonLogFiles(limit: number = 50): Promise<LogFileInf
 
     // Prefer the path persisted by the daemon if present (return 0th element if present)
     try {
+      // Lazy import to avoid circular dependency: logger.ts ↔ persistence.ts
+      const { readDaemonState } = await import('@/persistence');
       const state = await readDaemonState();
 
       if (!state) {
