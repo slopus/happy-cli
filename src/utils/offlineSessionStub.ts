@@ -26,6 +26,7 @@ class OfflineSessionStub extends EventEmitter {
     }
 
     sendCodexMessage(): void {}
+    sendAgentMessage(): void {}
     sendClaudeSessionMessage(): void {}
     keepAlive(): void {}
     sendSessionEvent(): void {}
