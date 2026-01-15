@@ -10,7 +10,34 @@
  * @module offlineSessionStub
  */
 
+import { EventEmitter } from 'node:events';
 import type { ApiSessionClient } from '@/api/apiSession';
+
+class OfflineSessionStub extends EventEmitter {
+    sessionId: string;
+    rpcHandlerManager: { registerHandler: () => void };
+
+    constructor(sessionId: string) {
+        super();
+        this.sessionId = sessionId;
+        this.rpcHandlerManager = {
+            registerHandler: () => {},
+        };
+    }
+
+    sendCodexMessage(): void {}
+    sendClaudeSessionMessage(): void {}
+    keepAlive(): void {}
+    sendSessionEvent(): void {}
+    sendSessionDeath(): void {}
+    updateLifecycleState(): void {}
+    requestControlTransfer = async (): Promise<void> => {};
+    flush = async (): Promise<void> => {};
+    close = async (): Promise<void> => {};
+    updateMetadata(): void {}
+    updateAgentState(): void {}
+    onUserMessage(): void {}
+}
 
 /**
  * Creates a no-op session stub for offline mode.
@@ -32,22 +59,5 @@ import type { ApiSessionClient } from '@/api/apiSession';
  * ```
  */
 export function createOfflineSessionStub(sessionTag: string): ApiSessionClient {
-    return {
-        sessionId: `offline-${sessionTag}`,
-        sendCodexMessage: () => {},
-        sendClaudeSessionMessage: () => {},
-        keepAlive: () => {},
-        sendSessionEvent: () => {},
-        sendSessionDeath: () => {},
-        updateLifecycleState: () => {},
-        requestControlTransfer: async () => {},
-        flush: async () => {},
-        close: async () => {},
-        updateMetadata: () => {},
-        updateAgentState: () => {},
-        onUserMessage: () => {},
-        rpcHandlerManager: {
-            registerHandler: () => {}
-        }
-    } as unknown as ApiSessionClient;
+    return new OfflineSessionStub(`offline-${sessionTag}`) as unknown as ApiSessionClient;
 }
