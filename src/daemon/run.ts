@@ -12,7 +12,7 @@ import { configuration } from '@/configuration';
 import { startCaffeinate, stopCaffeinate } from '@/utils/caffeinate';
 import packageJson from '../../package.json';
 import { getEnvironmentInfo } from '@/ui/doctor';
-import { spawnHappyCLI } from '@/utils/spawnHappyCLI';
+import { buildHappyCliSubprocessInvocation, spawnHappyCLI } from '@/utils/spawnHappyCLI';
 import { writeDaemonState, DaemonLocallyPersistedState, readDaemonState, acquireDaemonLock, releaseDaemonLock, readSettings } from '@/persistence';
 
 import { cleanupDaemonState, isDaemonRunningCurrentlyInstalledHappyVersion, stopDaemon } from './controlClient';
@@ -20,7 +20,7 @@ import { startDaemonControlServer } from './controlServer';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { projectPath } from '@/projectPath';
-import { getTmuxUtilities, isTmuxAvailable, parseTmuxSessionIdentifier, formatTmuxSessionIdentifier } from '@/utils/tmux';
+import { TmuxUtilities, isTmuxAvailable } from '@/utils/tmux';
 import { expandEnvironmentVariables } from '@/utils/expandEnvVars';
 
 // Prepare initial metadata
@@ -32,6 +32,57 @@ export const initialMachineMetadata: MachineMetadata = {
   happyHomeDir: configuration.happyHomeDir,
   happyLibDir: projectPath()
 };
+
+export function buildTmuxWindowEnv(
+  daemonEnv: NodeJS.ProcessEnv,
+  extraEnv: Record<string, string>,
+): Record<string, string> {
+  const merged: Record<string, string> = {};
+  for (const [key, value] of Object.entries(daemonEnv)) {
+    if (typeof value === 'string') merged[key] = value;
+  }
+  for (const [key, value] of Object.entries(extraEnv)) {
+    merged[key] = value;
+  }
+  return merged;
+}
+
+export function buildTmuxSpawnConfig(params: {
+  agent: 'claude' | 'codex' | 'gemini';
+  directory: string;
+  extraEnv: Record<string, string>;
+}): {
+  commandTokens: string[];
+  tmuxEnv: Record<string, string>;
+  tmuxCommandEnv: Record<string, string>;
+  directory: string;
+} {
+  const args = [
+    params.agent,
+    '--happy-starting-mode',
+    'remote',
+    '--started-by',
+    'daemon',
+  ];
+
+  const { runtime, argv } = buildHappyCliSubprocessInvocation(args);
+  const commandTokens = [runtime, ...argv];
+
+  const tmuxEnv = buildTmuxWindowEnv(process.env, params.extraEnv);
+
+  const tmuxCommandEnv: Record<string, string> = {};
+  const tmuxTmpDir = params.extraEnv.TMUX_TMPDIR;
+  if (typeof tmuxTmpDir === 'string' && tmuxTmpDir.length > 0) {
+    tmuxCommandEnv.TMUX_TMPDIR = tmuxTmpDir;
+  }
+
+  return {
+    commandTokens,
+    tmuxEnv,
+    tmuxCommandEnv,
+    directory: params.directory,
+  };
+}
 
 export async function startDaemon(): Promise<void> {
   // We don't have cleanup function at the time of server construction
@@ -354,22 +405,19 @@ export async function startDaemon(): Promise<void> {
           const sessionDesc = tmuxSessionName || 'current/most recent session';
           logger.debug(`[DAEMON RUN] Attempting to spawn session in tmux: ${sessionDesc}`);
 
-          const tmux = getTmuxUtilities(tmuxSessionName);
-
-          // Construct command for the CLI
-          const cliPath = join(projectPath(), 'dist', 'index.mjs');
           // Determine agent command - support claude, codex, and gemini
           const agent = options.agent === 'gemini' ? 'gemini' : (options.agent === 'codex' ? 'codex' : 'claude');
-          const fullCommand = `node --no-warnings --no-deprecation ${cliPath} ${agent} --happy-starting-mode remote --started-by daemon`;
+          const { commandTokens, tmuxEnv, tmuxCommandEnv } = buildTmuxSpawnConfig({ agent, directory, extraEnv });
+          const tmux = new TmuxUtilities(tmuxSessionName, tmuxCommandEnv);
 
           // Spawn in tmux with environment variables
           // IMPORTANT: `spawnInTmux` uses `-e KEY=VALUE` flags for the window.
-          // Pass ONLY variables we want to override for the spawned agent (extraEnv),
-          // not the entire daemon process.env (which can be huge and may exceed tmux command limits).
+          // Use merged env so tmux mode matches regular process spawn behavior.
+          // Note: this may add many `-e` flags; if it becomes a problem we can optimize
+          // by diffing against `tmux show-environment` in a follow-up.
           const windowName = `happy-${Date.now()}-${agent}`;
-          const tmuxEnv: Record<string, string> = { ...extraEnv };
 
-          const tmuxResult = await tmux.spawnInTmux([fullCommand], {
+          const tmuxResult = await tmux.spawnInTmux(commandTokens, {
             sessionName: tmuxSessionName,
             windowName: windowName,
             cwd: directory
@@ -384,7 +432,7 @@ export async function startDaemon(): Promise<void> {
             }
 
             // Resolve the actual tmux session name used (important when sessionName was empty/undefined)
-            const tmuxSession = tmuxResult.sessionId ? parseTmuxSessionIdentifier(tmuxResult.sessionId).session : (tmuxSessionName || 'happy');
+            const tmuxSession = tmuxResult.sessionName ?? (tmuxSessionName || 'happy');
 
             // Optional: persist environment variables into the tmux session environment
             // (so user-created windows inherit them). This can expose secrets via tmux show-environment,
@@ -487,8 +535,7 @@ export async function startDaemon(): Promise<void> {
             '--started-by', 'daemon'
           ];
 
-          // TODO: In future, sessionId could be used with --resume to continue existing sessions
-          // For now, we ignore it - each spawn creates a new session
+          // Note: sessionId is not currently used to resume sessions; each spawn creates a new session.
           const happyProcess = spawnHappyCLI(args, {
             cwd: directory,
             detached: true,  // Sessions stay alive when daemon stops
