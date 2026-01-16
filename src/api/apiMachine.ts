@@ -11,6 +11,7 @@ import { registerCommonHandlers, SpawnSessionOptions, SpawnSessionResult } from 
 import { encodeBase64, decodeBase64, encrypt, decrypt } from './encryption';
 import { backoff } from '@/utils/time';
 import { RpcHandlerManager } from './rpc/RpcHandlerManager';
+import { createProxyAgent } from '@/utils/proxy';
 
 interface ServerToDaemonEvents {
     update: (data: Update) => void;
@@ -227,7 +228,8 @@ export class ApiMachineClient {
             path: '/v1/updates',
             reconnection: true,
             reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000
+            reconnectionDelayMax: 5000,
+            agent: createProxyAgent() as any
         });
 
         this.socket.on('connect', () => {
