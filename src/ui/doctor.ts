@@ -22,8 +22,19 @@ export function maskValue(value: string | undefined): string | undefined;
 export function maskValue(value: string | undefined): string | undefined {
     if (value === undefined) return undefined;
     if (value.trim() === '') return '<empty>';
+
     // Treat ${VAR} templates as safe to display (they do not contain secrets themselves).
     if (/^\$\{[A-Z_][A-Z0-9_]*\}$/.test(value)) return value;
+
+    // For templates with default values, preserve the template structure but mask the fallback.
+    // Example: ${OPENAI_API_KEY:-sk-...} -> ${OPENAI_API_KEY:-<N chars>}
+    const matchWithFallback = value.match(/^\$\{([A-Z_][A-Z0-9_]*)(:-|:=)(.*)\}$/);
+    if (matchWithFallback) {
+        const [, sourceVar, operator, fallback] = matchWithFallback;
+        if (fallback === '') return `\${${sourceVar}${operator}}`;
+        return `\${${sourceVar}${operator}${maskValue(fallback)}}`;
+    }
+
     return `<${value.length} chars>`;
 }
 
