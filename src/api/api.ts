@@ -9,6 +9,7 @@ import { configuration } from '@/configuration';
 import chalk from 'chalk';
 import { Credentials } from '@/persistence';
 import { connectionState, isNetworkError } from '@/utils/serverConnectionErrors';
+import { createProxyAgent } from '@/utils/proxy';
 
 export class ApiClient {
 
@@ -70,7 +71,9 @@ export class ApiClient {
             'Authorization': `Bearer ${this.credential.token}`,
             'Content-Type': 'application/json'
           },
-          timeout: 60000 // 1 minute timeout for very bad network connections
+          timeout: 60000, // 1 minute timeout for very bad network connections
+          httpAgent: createProxyAgent(),
+          httpsAgent: createProxyAgent()
         }
       )
 
@@ -190,7 +193,9 @@ export class ApiClient {
             'Authorization': `Bearer ${this.credential.token}`,
             'Content-Type': 'application/json'
           },
-          timeout: 60000 // 1 minute timeout for very bad network connections
+          timeout: 60000, // 1 minute timeout for very bad network connections
+          httpAgent: createProxyAgent(),
+          httpsAgent: createProxyAgent()
         }
       );
 
@@ -301,7 +306,9 @@ export class ApiClient {
             'Authorization': `Bearer ${this.credential.token}`,
             'Content-Type': 'application/json'
           },
-          timeout: 5000
+          timeout: 5000,
+          httpAgent: createProxyAgent(),
+          httpsAgent: createProxyAgent()
         }
       );
 
@@ -329,7 +336,9 @@ export class ApiClient {
             'Authorization': `Bearer ${this.credential.token}`,
             'Content-Type': 'application/json'
           },
-          timeout: 5000
+          timeout: 5000,
+          httpAgent: createProxyAgent(),
+          httpsAgent: createProxyAgent()
         }
       );
 
