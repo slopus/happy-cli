@@ -745,14 +745,13 @@ export class TmuxUtilities {
      * Spawn process in tmux session with environment variables.
      *
      * IMPORTANT: Unlike Node.js spawn(), env is a separate parameter.
-     * This is intentional because:
-     * - Tmux windows inherit environment from the tmux server
-     * - Only NEW or DIFFERENT variables need to be set via -e flag
-     * - Passing all of process.env would create 50+ unnecessary -e flags
+     * This is intentional because tmux sets window-scoped environment via `new-window -e KEY=VALUE`.
+     * Callers may provide a fully merged environment (daemon env + profile overrides) so tmux and
+     * non-tmux spawns behave consistently.
      *
      * @param args - Command and arguments to execute (as array, will be joined)
      * @param options - Spawn options (tmux-specific, excludes env)
-     * @param env - Environment variables to set in window (only pass what's different!)
+     * @param env - Environment variables to set in window
      * @returns Result with success status and session identifier
      */
     async spawnInTmux(
