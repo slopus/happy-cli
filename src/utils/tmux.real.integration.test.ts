@@ -9,6 +9,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { TmuxUtilities } from '@/utils/tmux';
@@ -119,7 +120,7 @@ function runTmux(args: string[], options?: { env?: Record<string, string | undef
 
 describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt-in)', { timeout: 20_000 }, () => {
     it('spawnInTmux returns a real pane PID via -P/-F (regression: PR107 option ordering)', async () => {
-        const dir = mkdtempSync('/tmp/happy-cli-tmux-it-');
+        const dir = mkdtempSync(join(tmpdir(), 'happy-cli-tmux-it-'));
         const socketPath = join(dir, 'tmux.sock');
         const utils = new TmuxUtilities('happy', undefined, socketPath);
 
@@ -164,7 +165,7 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
     });
 
     it('spawnInTmux passes -e KEY=VALUE env values literally (regression: PR107 quoting/escaping)', async () => {
-        const dir = mkdtempSync('/tmp/happy-cli-tmux-it-');
+        const dir = mkdtempSync(join(tmpdir(), 'happy-cli-tmux-it-'));
         const socketPath = join(dir, 'tmux.sock');
         const utils = new TmuxUtilities('happy', undefined, socketPath);
 
@@ -200,7 +201,7 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
     });
 
     it('spawnInTmux quotes command tokens safely (regression: PR107 args.join(\" \") injection/splitting)', async () => {
-        const dir = mkdtempSync('/tmp/happy-cli-tmux-it-');
+        const dir = mkdtempSync(join(tmpdir(), 'happy-cli-tmux-it-'));
         const socketPath = join(dir, 'tmux.sock');
         const utils = new TmuxUtilities('happy', undefined, socketPath);
 
@@ -237,10 +238,10 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
     });
 
     it('TMUX_TMPDIR affects which tmux server commands talk to (regression: PR107 wrong-server assumptions)', async () => {
-        const dir = mkdtempSync('/tmp/happy-cli-tmux-it-');
+        const dir = mkdtempSync(join(tmpdir(), 'happy-cli-tmux-it-'));
         // IMPORTANT: keep the socket path short to avoid unix domain socket length limits (common on macOS).
         // tmux will create tmux-<uid>/default within this directory.
-        const tmuxTmpDir = mkdtempSync('/tmp/happy-cli-tmux-tmpdir-it-');
+        const tmuxTmpDir = mkdtempSync(join(tmpdir(), 'happy-cli-tmux-tmpdir-it-'));
 
         const utils = new TmuxUtilities('happy', { TMUX_TMPDIR: tmuxTmpDir });
 
