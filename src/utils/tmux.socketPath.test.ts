@@ -1,14 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'node:events';
-import type { SpawnOptions } from 'node:child_process';
+import type { SpawnOptions, ChildProcessWithoutNullStreams } from 'node:child_process';
+
+type SpawnCall = {
+    command: string;
+    args: string[];
+    options: SpawnOptions;
+};
 
 const { spawnMock, getLastSpawnCall } = vi.hoisted(() => {
-    let lastSpawnCall: { command: string; args: string[]; options: SpawnOptions } | null = null;
+    let lastSpawnCall: SpawnCall | null = null;
 
-    const spawnMock = vi.fn((command: string, args: string[], options: SpawnOptions) => {
-        lastSpawnCall = { command, args, options };
+    const spawnMock = vi.fn((command: string, args: readonly string[], options: SpawnOptions) => {
+        lastSpawnCall = { command, args: [...args], options };
 
-        const child = new EventEmitter() as any;
+        type MinimalChild = EventEmitter & {
+            stdout: EventEmitter;
+            stderr: EventEmitter;
+        };
+
+        const child = new EventEmitter() as MinimalChild;
         child.stdout = new EventEmitter();
         child.stderr = new EventEmitter();
 
@@ -16,7 +27,7 @@ const { spawnMock, getLastSpawnCall } = vi.hoisted(() => {
             child.emit('close', 0);
         });
 
-        return child;
+        return child as unknown as ChildProcessWithoutNullStreams;
     });
 
     return {
@@ -36,14 +47,16 @@ describe('TmuxUtilities tmux socket path', () => {
 
     it('uses -S <socketPath> by default when configured', async () => {
         vi.resetModules();
-        const { TmuxUtilities } = await import('./tmux');
+        const { TmuxUtilities } = await import('@/utils/tmux');
 
-        const utils = new (TmuxUtilities as any)('happy', undefined, '/tmp/happy-cli-tmux-test.sock');
+        const socketPath = '/tmp/happy-cli-tmux-test.sock';
+        const utils = new TmuxUtilities('happy', undefined, socketPath);
         await utils.executeTmuxCommand(['list-sessions']);
 
         const call = getLastSpawnCall();
-        expect(call?.command).toBe('tmux');
-        expect(call?.args).toEqual(expect.arrayContaining(['-S', '/tmp/happy-cli-tmux-test.sock']));
+        expect(call).not.toBeNull();
+        expect(call!.command).toBe('tmux');
+        expect(call!.args).toEqual(expect.arrayContaining(['-S', socketPath]));
     });
 });
 

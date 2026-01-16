@@ -12,10 +12,13 @@
 
 import { EventEmitter } from 'node:events';
 import type { ApiSessionClient } from '@/api/apiSession';
+import type { RpcHandler } from '@/api/rpc/types';
 
 class OfflineSessionStub extends EventEmitter {
     sessionId: string;
-    rpcHandlerManager: { registerHandler: () => void };
+    rpcHandlerManager: {
+        registerHandler: <TRequest = any, TResponse = any>(method: string, handler: RpcHandler<TRequest, TResponse>) => void;
+    };
 
     constructor(sessionId: string) {
         super();

@@ -37,14 +37,11 @@ export function buildTmuxWindowEnv(
   daemonEnv: NodeJS.ProcessEnv,
   extraEnv: Record<string, string>,
 ): Record<string, string> {
-  const merged: Record<string, string> = {};
-  for (const [key, value] of Object.entries(daemonEnv)) {
-    if (typeof value === 'string') merged[key] = value;
-  }
-  for (const [key, value] of Object.entries(extraEnv)) {
-    merged[key] = value;
-  }
-  return merged;
+  const filteredDaemonEnv = Object.fromEntries(
+    Object.entries(daemonEnv).filter(([, value]) => typeof value === 'string'),
+  ) as Record<string, string>;
+
+  return { ...filteredDaemonEnv, ...extraEnv };
 }
 
 export function buildTmuxSpawnConfig(params: {
@@ -433,34 +430,6 @@ export async function startDaemon(): Promise<void> {
 
             // Resolve the actual tmux session name used (important when sessionName was empty/undefined)
             const tmuxSession = tmuxResult.sessionName ?? (tmuxSessionName || 'happy');
-
-            // Optional: persist environment variables into the tmux session environment
-            // (so user-created windows inherit them). This can expose secrets via tmux show-environment,
-            // so it is opt-in via TMUX_UPDATE_ENVIRONMENT=true.
-            const shouldUpdateTmuxEnvironment =
-              profileEnv.TMUX_UPDATE_ENVIRONMENT !== undefined &&
-              ['true', '1', 'yes'].includes(String(extraEnv.TMUX_UPDATE_ENVIRONMENT).toLowerCase());
-
-            if (shouldUpdateTmuxEnvironment) {
-              const keysToSkip = new Set([
-                'TMUX_SESSION_NAME',
-                'TMUX_TMPDIR',
-                'TMUX_UPDATE_ENVIRONMENT',
-              ]);
-
-              // Persist ONLY profile-provided env vars (not auth/session env).
-              // Values are taken from expanded env so ${VAR} templates resolve correctly.
-              const entriesToSet = Object.keys(profileEnv)
-                .filter((key) => !keysToSkip.has(key))
-                .map((key) => [key, extraEnv[key]] as const)
-                .filter(([, value]) => value !== undefined);
-
-              for (const [key, value] of entriesToSet) {
-                await tmux.executeTmuxCommand(['set-environment', '-t', tmuxSession, key, String(value)]);
-              }
-
-              logger.debug(`[DAEMON RUN] Updated tmux session environment for ${tmuxSession}: ${entriesToSet.length} vars`);
-            }
 
             // Create a tracked session for tmux windows - now we have the real PID!
             const trackedSession: TrackedSession = {

@@ -9,22 +9,8 @@ describe('daemon tmux spawn config', () => {
         process.env.PATH = '/bin';
 
         try {
-            const runModule = await import('./run');
-            const buildTmuxSpawnConfig = (runModule as any).buildTmuxSpawnConfig as
-                | ((params: {
-                      agent: 'claude' | 'codex' | 'gemini';
-                      directory: string;
-                      extraEnv: Record<string, string>;
-                  }) => {
-                      commandTokens: string[];
-                      tmuxEnv: Record<string, string>;
-                      tmuxCommandEnv: Record<string, string>;
-                  })
-                | undefined;
-
-            expect(typeof buildTmuxSpawnConfig).toBe('function');
-
-            const cfg = buildTmuxSpawnConfig!({
+            const runModule = (await import('@/daemon/run')) as typeof import('@/daemon/run');
+            const cfg = runModule.buildTmuxSpawnConfig({
                 agent: 'claude',
                 directory: '/tmp',
                 extraEnv: {

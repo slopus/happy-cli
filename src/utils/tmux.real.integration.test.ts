@@ -1,8 +1,17 @@
+/**
+ * Opt-in tmux integration tests.
+ *
+ * These tests start isolated tmux servers (via `-S` or `TMUX_TMPDIR`) and must
+ * never interact with a user's existing tmux sessions.
+ *
+ * Enable with: `HAPPY_CLI_TMUX_INTEGRATION=1`
+ */
+
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { TmuxUtilities } from './tmux';
+import { TmuxUtilities } from '@/utils/tmux';
 
 function isTmuxInstalled(): boolean {
     const result = spawnSync('tmux', ['-V'], { encoding: 'utf8' });
@@ -78,7 +87,14 @@ async function withCleanTmuxClientEnv<T>(fn: () => Promise<T>): Promise<T> {
     }
 }
 
-function runTmux(args: string[], options?: { env?: Record<string, string | undefined> }) {
+type TmuxRunResult = {
+    status: number | null;
+    stdout: string;
+    stderr: string;
+    error: Error | undefined;
+};
+
+function runTmux(args: string[], options?: { env?: Record<string, string | undefined> }): TmuxRunResult {
     // Never inherit the user's existing tmux context (TMUX/TMUX_PANE) or TMUX_TMPDIR.
     // These tests must only ever talk to isolated servers created by the test itself.
     const env: NodeJS.ProcessEnv = { ...process.env };

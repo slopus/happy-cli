@@ -17,6 +17,8 @@ import { join } from 'node:path'
 import { projectPath } from '@/projectPath'
 import packageJson from '../../package.json'
 
+export function maskValue(value: string): string;
+export function maskValue(value: string | undefined): string | undefined;
 export function maskValue(value: string | undefined): string | undefined {
     if (value === undefined) return undefined;
     if (value.trim() === '') return '<empty>';
@@ -25,47 +27,25 @@ export function maskValue(value: string | undefined): string | undefined {
     return `<${value.length} chars>`;
 }
 
-function redactSettingsForDisplay(settings: any): any {
-    const redacted = JSON.parse(JSON.stringify(settings ?? {}));
+type SettingsForDisplay = Awaited<ReturnType<typeof readSettings>>;
+
+function redactSettingsForDisplay(settings: SettingsForDisplay): SettingsForDisplay {
+    const redacted = JSON.parse(JSON.stringify(settings ?? {})) as SettingsForDisplay;
+    const redactedRecord = redacted as unknown as Record<string, unknown>;
 
     // Remove any legacy CLI-local env cache; it may contain secrets.
-    if ('localEnvironmentVariables' in redacted) {
-        delete redacted.localEnvironmentVariables;
+    if (Object.prototype.hasOwnProperty.call(redactedRecord, 'localEnvironmentVariables')) {
+        delete redactedRecord.localEnvironmentVariables;
     }
 
     if (Array.isArray(redacted.profiles)) {
-        redacted.profiles = redacted.profiles.map((profile: any) => {
+        redacted.profiles = redacted.profiles.map((profile) => {
             const p = { ...profile };
 
-            if (p.anthropicConfig) {
-                p.anthropicConfig = {
-                    ...p.anthropicConfig,
-                    authToken: maskValue(p.anthropicConfig.authToken),
-                };
-            }
-            if (p.openaiConfig) {
-                p.openaiConfig = {
-                    ...p.openaiConfig,
-                    apiKey: maskValue(p.openaiConfig.apiKey),
-                };
-            }
-            if (p.azureOpenAIConfig) {
-                p.azureOpenAIConfig = {
-                    ...p.azureOpenAIConfig,
-                    apiKey: maskValue(p.azureOpenAIConfig.apiKey),
-                };
-            }
-            if (p.togetherAIConfig) {
-                p.togetherAIConfig = {
-                    ...p.togetherAIConfig,
-                    apiKey: maskValue(p.togetherAIConfig.apiKey),
-                };
-            }
-
             if (Array.isArray(p.environmentVariables)) {
-                p.environmentVariables = p.environmentVariables.map((ev: any) => ({
+                p.environmentVariables = p.environmentVariables.map((ev) => ({
                     ...ev,
-                    value: maskValue(ev?.value),
+                    value: maskValue(ev.value),
                 }));
             }
 

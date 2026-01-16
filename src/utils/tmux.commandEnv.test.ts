@@ -1,13 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'node:events';
+import type { SpawnOptions, ChildProcessWithoutNullStreams } from 'node:child_process';
 
-const { spawnMock, getLastSpawnOptions } = vi.hoisted(() => {
-    let lastSpawnOptions: any = null;
+type SpawnCall = {
+    command: string;
+    args: string[];
+    options: SpawnOptions;
+};
 
-    const spawnMock = vi.fn((_command: string, _args: string[], options: any) => {
-        lastSpawnOptions = options;
+const { spawnMock, getLastSpawnCall } = vi.hoisted(() => {
+    let lastSpawnCall: SpawnCall | null = null;
 
-        const child = new EventEmitter() as any;
+    const spawnMock = vi.fn((command: string, args: readonly string[], options: SpawnOptions) => {
+        lastSpawnCall = { command, args: [...args], options };
+
+        type MinimalChild = EventEmitter & {
+            stdout: EventEmitter;
+            stderr: EventEmitter;
+        };
+
+        const child = new EventEmitter() as MinimalChild;
         child.stdout = new EventEmitter();
         child.stderr = new EventEmitter();
 
@@ -15,12 +27,12 @@ const { spawnMock, getLastSpawnOptions } = vi.hoisted(() => {
             child.emit('close', 0);
         });
 
-        return child;
+        return child as unknown as ChildProcessWithoutNullStreams;
     });
 
     return {
         spawnMock,
-        getLastSpawnOptions: () => lastSpawnOptions,
+        getLastSpawnCall: () => lastSpawnCall,
     };
 });
 
@@ -35,14 +47,14 @@ describe('TmuxUtilities tmux subprocess environment', () => {
 
     it('passes TMUX_TMPDIR to tmux subprocess env when provided', async () => {
         vi.resetModules();
-        const { TmuxUtilities } = await import('./tmux');
+        const { TmuxUtilities } = await import('@/utils/tmux');
 
-        const utils = new (TmuxUtilities as any)('happy', { TMUX_TMPDIR: '/custom/tmux' });
-
+        const utils = new TmuxUtilities('happy', { TMUX_TMPDIR: '/custom/tmux' });
         await utils.executeTmuxCommand(['list-sessions']);
 
-        const options = getLastSpawnOptions();
-        expect(options?.env?.TMUX_TMPDIR).toBe('/custom/tmux');
+        const call = getLastSpawnCall();
+        expect(call).not.toBeNull();
+        expect((call!.options.env as NodeJS.ProcessEnv | undefined)?.TMUX_TMPDIR).toBe('/custom/tmux');
     });
 });
 
