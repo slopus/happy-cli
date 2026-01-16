@@ -183,6 +183,7 @@ export async function startDaemon(): Promise<void> {
 
     // Setup state - key by PID
     const pidToTrackedSession = new Map<number, TrackedSession>();
+    const codexHomeDirCleanupByPid = new Map<number, () => void>();
 
     // Session spawning awaiter system
     const pidToAwaiter = new Map<number, (session: TrackedSession) => void>();
@@ -253,6 +254,9 @@ export async function startDaemon(): Promise<void> {
       const { directory, sessionId, machineId, approvedNewDirectoryCreation = true } = options;
       let directoryCreated = false;
 
+      let codexHomeDirCleanup: (() => void) | null = null;
+      let codexHomeDirCleanupArmed = false;
+
       try {
         await fs.access(directory);
         logger.debug(`[DAEMON RUN] Directory exists: ${directory}`);
@@ -310,9 +314,10 @@ export async function startDaemon(): Promise<void> {
 
             // Create a temporary directory for Codex
             const codexHomeDir = tmp.dirSync();
+            codexHomeDirCleanup = codexHomeDir.removeCallback;
 
             // Write the token to the temporary directory
-            fs.writeFile(join(codexHomeDir.name, 'auth.json'), options.token);
+            await fs.writeFile(join(codexHomeDir.name, 'auth.json'), options.token);
 
             // Set the environment variable for Codex
             authEnv.CODEX_HOME = codexHomeDir.name;
@@ -374,6 +379,10 @@ export async function startDaemon(): Promise<void> {
           const errorMessage = `Authentication will fail - environment variables not found in daemon: ${missingVarDetails.join('; ')}. ` +
             `Ensure these variables are set in the daemon's environment (not just your shell) before starting sessions.`;
           logger.warn(`[DAEMON RUN] ${errorMessage}`);
+          if (codexHomeDirCleanup && !codexHomeDirCleanupArmed) {
+            codexHomeDirCleanup();
+            codexHomeDirCleanup = null;
+          }
           return {
             type: 'error',
             errorMessage
@@ -444,6 +453,10 @@ export async function startDaemon(): Promise<void> {
 
             // Add to tracking map so webhook can find it later
             pidToTrackedSession.set(tmuxResult.pid, trackedSession);
+            if (codexHomeDirCleanup) {
+              codexHomeDirCleanupByPid.set(tmuxResult.pid, codexHomeDirCleanup);
+              codexHomeDirCleanupArmed = true;
+            }
 
             // Wait for webhook to populate session with happySessionId (exact same as regular flow)
             logger.debug(`[DAEMON RUN] Waiting for session webhook for PID ${tmuxResult.pid} (tmux)`);
@@ -527,6 +540,10 @@ export async function startDaemon(): Promise<void> {
 
           if (!happyProcess.pid) {
             logger.debug('[DAEMON RUN] Failed to spawn process - no PID returned');
+            if (codexHomeDirCleanup && !codexHomeDirCleanupArmed) {
+              codexHomeDirCleanup();
+              codexHomeDirCleanup = null;
+            }
             return {
               type: 'error',
               errorMessage: 'Failed to spawn Happy process - no PID returned'
@@ -544,6 +561,10 @@ export async function startDaemon(): Promise<void> {
           };
 
           pidToTrackedSession.set(happyProcess.pid, trackedSession);
+          if (codexHomeDirCleanup) {
+            codexHomeDirCleanupByPid.set(happyProcess.pid, codexHomeDirCleanup);
+            codexHomeDirCleanupArmed = true;
+          }
 
           happyProcess.on('exit', (code, signal) => {
             logger.debug(`[DAEMON RUN] Child PID ${happyProcess.pid} exited with code ${code}, signal ${signal}`);
@@ -593,6 +614,10 @@ export async function startDaemon(): Promise<void> {
           errorMessage: 'Unexpected error in session spawning'
         };
       } catch (error) {
+        if (codexHomeDirCleanup && !codexHomeDirCleanupArmed) {
+          codexHomeDirCleanup();
+          codexHomeDirCleanup = null;
+        }
         const errorMessage = error instanceof Error ? error.message : String(error);
         logger.debug('[DAEMON RUN] Failed to spawn session:', error);
         return {
@@ -641,6 +666,15 @@ export async function startDaemon(): Promise<void> {
     // Handle child process exit
     const onChildExited = (pid: number) => {
       logger.debug(`[DAEMON RUN] Removing exited process PID ${pid} from tracking`);
+      const cleanup = codexHomeDirCleanupByPid.get(pid);
+      if (cleanup) {
+        codexHomeDirCleanupByPid.delete(pid);
+        try {
+          cleanup();
+        } catch (error) {
+          logger.debug('[DAEMON RUN] Failed to cleanup CODEX_HOME tmp dir', error);
+        }
+      }
       pidToTrackedSession.delete(pid);
     };
 
@@ -721,7 +755,31 @@ export async function startDaemon(): Promise<void> {
         } catch (error) {
           // Process is dead, remove from tracking
           logger.debug(`[DAEMON RUN] Removing stale session with PID ${pid} (process no longer exists)`);
+          const cleanup = codexHomeDirCleanupByPid.get(pid);
+          if (cleanup) {
+            codexHomeDirCleanupByPid.delete(pid);
+            try {
+              cleanup();
+            } catch (cleanupError) {
+              logger.debug('[DAEMON RUN] Failed to cleanup CODEX_HOME tmp dir', cleanupError);
+            }
+          }
           pidToTrackedSession.delete(pid);
+        }
+      }
+
+      // Cleanup any CODEX_HOME temp dirs for sessions no longer tracked (e.g. stopSession removed them).
+      for (const [pid, cleanup] of codexHomeDirCleanupByPid.entries()) {
+        if (pidToTrackedSession.has(pid)) continue;
+        try {
+          process.kill(pid, 0);
+        } catch {
+          codexHomeDirCleanupByPid.delete(pid);
+          try {
+            cleanup();
+          } catch (cleanupError) {
+            logger.debug('[DAEMON RUN] Failed to cleanup CODEX_HOME tmp dir', cleanupError);
+          }
         }
       }
 
