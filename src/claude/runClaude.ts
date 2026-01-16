@@ -27,6 +27,7 @@ import { startOfflineReconnection, connectionState } from '@/utils/serverConnect
 import { claudeLocal } from '@/claude/claudeLocal';
 import { createSessionScanner } from '@/claude/utils/sessionScanner';
 import { Session } from './session';
+import { setAgentType } from '@/utils/proxy';
 
 /** JavaScript runtime to use for spawning Claude Code */
 export type JsRuntime = 'node' | 'bun'
@@ -44,6 +45,9 @@ export interface StartOptions {
 }
 
 export async function runClaude(credentials: Credentials, options: StartOptions = {}): Promise<void> {
+    // Set agent type for proxy configuration
+    setAgentType('claude');
+
     logger.debug(`[CLAUDE] ===== CLAUDE MODE STARTING =====`);
     logger.debug(`[CLAUDE] This is the Claude agent, NOT Gemini`);
     
