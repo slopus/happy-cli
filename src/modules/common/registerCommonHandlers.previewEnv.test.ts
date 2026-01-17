@@ -1,5 +1,12 @@
+/**
+ * Tests for the `preview-env` RPC handler.
+ *
+ * Ensures the daemon can safely preview effective environment variable values
+ * (including ${VAR} expansion) without exposing secrets by default.
+ */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager';
+import type { RpcRequest } from '@/api/rpc/types';
 import { decodeBase64, decrypt, encodeBase64, encrypt } from '@/api/encryption';
 import { registerCommonHandlers } from './registerCommonHandlers';
 
@@ -17,14 +24,15 @@ function createTestRpcManager(params?: { scopePrefix?: string }) {
 
     registerCommonHandlers(manager, process.cwd());
 
-    async function call<T>(method: string, request: unknown): Promise<T> {
+    async function call<TResponse, TRequest>(method: string, request: TRequest): Promise<TResponse> {
         const encryptedParams = encodeBase64(encrypt(encryptionKey, encryptionVariant, request));
-        const encryptedResponse = await manager.handleRequest({
+        const rpcRequest: RpcRequest = {
             method: `${scopePrefix}:${method}`,
             params: encryptedParams,
-        } as any);
+        };
+        const encryptedResponse = await manager.handleRequest(rpcRequest);
         const decrypted = decrypt(encryptionKey, encryptionVariant, decodeBase64(encryptedResponse));
-        return decrypted as T;
+        return decrypted as TResponse;
     }
 
     return { call };
@@ -47,7 +55,10 @@ describe('registerCommonHandlers preview-env', () => {
 
         const { call } = createTestRpcManager();
 
-        const result = await call<any>('preview-env', {
+        const result = await call<{ policy: string; values: Record<string, { display: string; value: string | null }> }, {
+            keys: string[];
+            extraEnv?: Record<string, string>;
+        }>('preview-env', {
             keys: ['PATH'],
             extraEnv: {
                 PATH: '/opt/bin:${PATH}',
@@ -65,7 +76,11 @@ describe('registerCommonHandlers preview-env', () => {
 
         const { call } = createTestRpcManager();
 
-        const result = await call<any>('preview-env', {
+        const result = await call<{ policy: string; values: Record<string, { isSensitive: boolean; display: string; value: string | null }> }, {
+            keys: string[];
+            extraEnv?: Record<string, string>;
+            sensitiveHints?: Record<string, boolean>;
+        }>('preview-env', {
             keys: ['ANTHROPIC_AUTH_TOKEN'],
             extraEnv: {
                 ANTHROPIC_AUTH_TOKEN: '${SECRET_TOKEN}',
@@ -88,7 +103,11 @@ describe('registerCommonHandlers preview-env', () => {
 
         const { call } = createTestRpcManager();
 
-        const result = await call<any>('preview-env', {
+        const result = await call<{ policy: string; values: Record<string, { display: string; value: string | null }> }, {
+            keys: string[];
+            extraEnv?: Record<string, string>;
+            sensitiveHints?: Record<string, boolean>;
+        }>('preview-env', {
             keys: ['ANTHROPIC_AUTH_TOKEN'],
             extraEnv: {
                 ANTHROPIC_AUTH_TOKEN: '${SECRET_TOKEN}',
@@ -110,7 +129,11 @@ describe('registerCommonHandlers preview-env', () => {
 
         const { call } = createTestRpcManager();
 
-        const result = await call<any>('preview-env', {
+        const result = await call<{ policy: string; values: Record<string, { display: string; value: string | null }> }, {
+            keys: string[];
+            extraEnv?: Record<string, string>;
+            sensitiveHints?: Record<string, boolean>;
+        }>('preview-env', {
             keys: ['ANTHROPIC_AUTH_TOKEN'],
             extraEnv: {
                 ANTHROPIC_AUTH_TOKEN: '${SECRET_TOKEN}',
@@ -126,4 +149,3 @@ describe('registerCommonHandlers preview-env', () => {
         expect(result.values.ANTHROPIC_AUTH_TOKEN.value).toBe('sk-1234567890');
     });
 });
-
