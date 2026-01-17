@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
+import type { CodexPermissionHandler } from './utils/permissionHandler';
+import { createCodexElicitationRequestHandler } from './codexMcpClient';
 
+// NOTE: This test suite uses mocks because the real Codex CLI / MCP transport
+// is not guaranteed to be available in CI or local test environments.
 vi.mock('child_process', () => ({
     execSync: vi.fn(),
 }));
@@ -43,28 +47,23 @@ describe('CodexMcpClient elicitation handling', () => {
         const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
         try {
-            const mod = await import('./codexMcpClient');
             consoleSpy.mockClear();
-            const createHandler = (mod as any).createCodexElicitationRequestHandler as
-                | ((permissionHandler: any) => (request: any) => Promise<any>)
-                | undefined;
-
-            expect(typeof createHandler).toBe('function');
 
             const permissionHandler = {
                 handleToolCall: vi.fn().mockResolvedValue({ decision: 'approved' }),
-            };
+            } as unknown as CodexPermissionHandler;
 
-            const handler = createHandler!(permissionHandler);
+            const handler = createCodexElicitationRequestHandler(permissionHandler);
             await handler({
                 params: {
                     codex_call_id: 'call-1',
-                    codex_command: ['echo', 'hi'],
+                    codex_command: 'echo hi',
                     codex_cwd: '/tmp',
                 },
             });
 
             expect(consoleSpy).not.toHaveBeenCalled();
+            expect(permissionHandler.handleToolCall).toHaveBeenCalled();
         } finally {
             consoleSpy.mockRestore();
         }

@@ -66,7 +66,7 @@ type CodexBashElicitationParams = z.infer<typeof CodexBashElicitationParamsSchem
 
 export function createCodexElicitationRequestHandler(
     permissionHandlerProvider: CodexPermissionHandlerProvider,
-) {
+): (request: { params: unknown }) => Promise<{ decision: 'denied' | 'approved' | 'approved_for_session' | 'abort'; reason?: string }> {
     const getPermissionHandler =
         typeof permissionHandlerProvider === 'function'
             ? permissionHandlerProvider
