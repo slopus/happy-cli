@@ -5,16 +5,19 @@
  * They do NOT require tmux to be installed on the system.
  * All tests mock environment variables and test string parsing only.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     normalizeExitCode,
     parseTmuxSessionIdentifier,
     formatTmuxSessionIdentifier,
     validateTmuxSessionIdentifier,
     buildTmuxSessionIdentifier,
+    createTmuxSession,
     TmuxSessionIdentifierError,
+    extractSessionAndWindow,
     TmuxUtilities,
     type TmuxSessionIdentifier,
+    type TmuxCommandResult,
 } from './tmux';
 
 describe('normalizeExitCode', () => {
@@ -472,11 +475,34 @@ describe('Round-trip consistency', () => {
     });
 });
 
+describe('extractSessionAndWindow', () => {
+    it('extracts session and window names containing spaces', () => {
+        const parsed = extractSessionAndWindow('my session:my window.2');
+        expect(parsed).toEqual({ session: 'my session', window: 'my window' });
+    });
+});
+
+describe('createTmuxSession', () => {
+    it('returns a trimmed session identifier', async () => {
+        const spy = vi
+            .spyOn(TmuxUtilities.prototype, 'executeTmuxCommand')
+            .mockResolvedValue({ returncode: 0, stdout: '', stderr: '', command: [] });
+
+        try {
+            const result = await createTmuxSession('  my session  ', { windowName: 'main' });
+            expect(result.success).toBe(true);
+            expect(result.sessionIdentifier).toBe('my session:main');
+        } finally {
+            spy.mockRestore();
+        }
+    });
+});
+
 describe('TmuxUtilities.spawnInTmux', () => {
     class FakeTmuxUtilities extends TmuxUtilities {
         public calls: Array<{ cmd: string[]; session?: string }> = [];
 
-        async executeTmuxCommand(cmd: string[], session?: string): Promise<any> {
+        async executeTmuxCommand(cmd: string[], session?: string): Promise<TmuxCommandResult | null> {
             this.calls.push({ cmd, session });
 
             if (cmd[0] === 'list-sessions') {

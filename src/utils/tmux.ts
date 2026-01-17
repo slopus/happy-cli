@@ -200,15 +200,25 @@ export function extractSessionAndWindow(tmuxOutput: string): { session: string; 
 
     // Look for session:window patterns in tmux output
     const lines = tmuxOutput.split('\n');
+    const nameRegex = /^[a-zA-Z0-9._ -]+$/;
 
     for (const line of lines) {
-        const match = line.match(/^([a-zA-Z0-9._-]+):([a-zA-Z0-9._-]+)(?:\.([0-9]+))?/);
-        if (match) {
-            return {
-                session: match[1],
-                window: match[2]
-            };
-        }
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        // Allow spaces in names, but keep ':' as the session/window separator.
+        // This helper is intended for extracting the canonical identifier shapes that tmux can emit
+        // via format strings (e.g. '#S:#W' or '#S:#W.#P'), so we require end-of-line matches.
+        const match = trimmed.match(/^(.+?):(.+?)(?:\.([0-9]+))?$/);
+        if (!match) continue;
+
+        const session = match[1]?.trim();
+        const window = match[2]?.trim();
+
+        if (!session || !window) continue;
+        if (!nameRegex.test(session) || !nameRegex.test(window)) continue;
+
+        return { session, window };
     }
 
     return null;
@@ -934,24 +944,16 @@ export class TmuxUtilities {
      */
     async listWindows(sessionName?: string): Promise<string[]> {
         const targetSession = sessionName || this.sessionName;
-        const result = await this.executeTmuxCommand(['list-windows', '-t', targetSession]);
+        const result = await this.executeTmuxCommand(['list-windows', '-t', targetSession, '-F', '#W']);
 
         if (!result || result.returncode !== 0) {
             return [];
         }
 
-        // Parse window names from tmux output
-        const windows: string[] = [];
-        const lines = result.stdout.trim().split('\n');
-
-        for (const line of lines) {
-            const match = line.match(/^\d+:\s+(\w+)/);
-            if (match) {
-                windows.push(match[1]);
-            }
-        }
-
-        return windows;
+        return result.stdout
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean);
     }
 }
 
@@ -1005,7 +1007,7 @@ export async function createTmuxSession(
         const result = await utils.executeTmuxCommand(cmd);
         if (result && result.returncode === 0) {
             const sessionIdentifier: TmuxSessionIdentifier = {
-                session: sessionName,
+                session: trimmedSessionName,
                 window: windowName
             };
             return {
