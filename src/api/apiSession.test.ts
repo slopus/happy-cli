@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ApiSessionClient } from './apiSession';
+import type { RawJSONLines } from '@/claude/types';
 
 // Use vi.hoisted to ensure mock function is available when vi.mock factory runs
 const { mockIo } = vi.hoisted(() => ({
@@ -20,10 +21,12 @@ describe('ApiSessionClient connection handling', () => {
 
         // Mock socket.io client
         mockSocket = {
+            connected: false,
             connect: vi.fn(),
             on: vi.fn(),
             off: vi.fn(),
-            disconnect: vi.fn()
+            disconnect: vi.fn(),
+            emit: vi.fn(),
         };
 
         mockIo.mockReturnValue(mockSocket);
@@ -63,6 +66,30 @@ describe('ApiSessionClient connection handling', () => {
         expect(mockSocket.on).toHaveBeenCalledWith('connect', expect.any(Function));
         expect(mockSocket.on).toHaveBeenCalledWith('disconnect', expect.any(Function));
         expect(mockSocket.on).toHaveBeenCalledWith('error', expect.any(Function));
+    });
+
+    it('emits messages even when disconnected (socket.io will buffer)', () => {
+        mockSocket.connected = false;
+
+        const client = new ApiSessionClient('fake-token', mockSession);
+
+        const payload: RawJSONLines = {
+            type: 'user',
+            uuid: 'test-uuid',
+            message: {
+                content: 'hello',
+            },
+        } as const;
+
+        client.sendClaudeSessionMessage(payload);
+
+        expect(mockSocket.emit).toHaveBeenCalledWith(
+            'message',
+            expect.objectContaining({
+                sid: mockSession.id,
+                message: expect.any(String),
+            })
+        );
     });
 
     afterEach(() => {

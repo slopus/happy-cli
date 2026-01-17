@@ -8,8 +8,8 @@ import { logger } from '@/ui/logger';
  * Example: { ANTHROPIC_AUTH_TOKEN: "${Z_AI_AUTH_TOKEN}" }
  *
  * When daemon spawns sessions:
- * - Tmux mode: Shell automatically expands ${VAR}
- * - Non-tmux mode: Node.js spawn does NOT expand ${VAR}
+ * - Tmux mode: tmux launches a shell, but shells do not expand ${VAR} placeholders embedded inside env values automatically
+ * - Non-tmux mode: Node.js spawn does NOT expand ${VAR} placeholders
  *
  * This utility ensures ${VAR} expansion works in both modes.
  *
@@ -28,50 +28,70 @@ import { logger } from '@/ui/logger';
  */
 export function expandEnvironmentVariables(
     envVars: Record<string, string>,
-    sourceEnv: NodeJS.ProcessEnv = process.env
+    sourceEnv: NodeJS.ProcessEnv = process.env,
+    options?: {
+        warnOnUndefined?: boolean;
+    }
 ): Record<string, string> {
     const expanded: Record<string, string> = {};
     const undefinedVars: string[] = [];
+    const assignedEnv: Record<string, string> = {};
+
+    function readEnv(varName: string): string | undefined {
+        if (Object.prototype.hasOwnProperty.call(assignedEnv, varName)) {
+            return assignedEnv[varName];
+        }
+        return sourceEnv[varName];
+    }
 
     for (const [key, value] of Object.entries(envVars)) {
-        // Replace all ${VAR} and ${VAR:-default} references with actual values from sourceEnv
+        // Replace all ${VAR}, ${VAR:-default}, and ${VAR:=default} references with actual values from sourceEnv
         const expandedValue = value.replace(/\$\{([^}]+)\}/g, (match, expr) => {
-            // Support bash parameter expansion: ${VAR:-default}
+            // Support bash parameter expansion: ${VAR:-default} and ${VAR:=default}
             // Example: ${Z_AI_BASE_URL:-https://api.z.ai/api/anthropic}
             const colonDashIndex = expr.indexOf(':-');
+            const colonEqIndex = expr.indexOf(':=');
             let varName: string;
             let defaultValue: string | undefined;
+            let operator: ':-' | ':=' | null = null;
 
-            if (colonDashIndex !== -1) {
-                // Split ${VAR:-default} into varName and defaultValue
-                varName = expr.substring(0, colonDashIndex);
-                defaultValue = expr.substring(colonDashIndex + 2);
+            if (colonDashIndex !== -1 || colonEqIndex !== -1) {
+                // Split ${VAR:-default} or ${VAR:=default} into varName and defaultValue
+                const idx = colonDashIndex !== -1 && (colonEqIndex === -1 || colonDashIndex < colonEqIndex)
+                    ? colonDashIndex
+                    : colonEqIndex;
+                operator = idx === colonDashIndex ? ':-' : ':=';
+                varName = expr.substring(0, idx);
+                defaultValue = expr.substring(idx + 2);
             } else {
                 // Simple ${VAR} reference
                 varName = expr;
             }
 
-            const resolvedValue = sourceEnv[varName];
-            if (resolvedValue !== undefined) {
+            const resolvedValue = readEnv(varName);
+            const shouldTreatEmptyAsMissing = defaultValue !== undefined;
+            const isMissing = resolvedValue === undefined || (shouldTreatEmptyAsMissing && resolvedValue === '');
+
+            if (!isMissing) {
                 // Variable found in source environment - use its value
-                // Log for debugging (mask secret-looking values)
-                const isSensitive = varName.toLowerCase().includes('token') ||
-                                   varName.toLowerCase().includes('key') ||
-                                   varName.toLowerCase().includes('secret');
-                const displayValue = isSensitive
-                    ? (resolvedValue ? `<${resolvedValue.length} chars>` : '<empty>')
-                    : resolvedValue;
-                logger.debug(`[EXPAND ENV] Expanded ${varName} from daemon env: ${displayValue}`);
+                if (process.env.DEBUG) {
+                    logger.debug(`[EXPAND ENV] Expanded ${varName} from daemon env`);
+                }
 
                 // Warn if empty string (common mistake)
-                if (resolvedValue === '') {
+                if (resolvedValue === '' && !Object.prototype.hasOwnProperty.call(assignedEnv, varName)) {
                     logger.warn(`[EXPAND ENV] WARNING: ${varName} is set but EMPTY in daemon environment`);
                 }
 
                 return resolvedValue;
             } else if (defaultValue !== undefined) {
                 // Variable not found but default value provided - use default
-                logger.debug(`[EXPAND ENV] Using default value for ${varName}: ${defaultValue}`);
+                if (process.env.DEBUG) {
+                    logger.debug(`[EXPAND ENV] Using default value for ${varName}`);
+                }
+                if (operator === ':=') {
+                    assignedEnv[varName] = defaultValue;
+                }
                 return defaultValue;
             } else {
                 // Variable not found and no default - keep placeholder and warn
@@ -84,7 +104,8 @@ export function expandEnvironmentVariables(
     }
 
     // Log warning if any variables couldn't be resolved
-    if (undefinedVars.length > 0) {
+    const warnOnUndefined = options?.warnOnUndefined ?? true;
+    if (warnOnUndefined && undefinedVars.length > 0) {
         logger.warn(`[EXPAND ENV] Undefined variables referenced in profile environment: ${undefinedVars.join(', ')}`);
         logger.warn(`[EXPAND ENV] Session may fail to authenticate. Set these in daemon environment before launching:`);
         undefinedVars.forEach(varName => {
