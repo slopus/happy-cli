@@ -1,0 +1,129 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager';
+import { decodeBase64, decrypt, encodeBase64, encrypt } from '@/api/encryption';
+import { registerCommonHandlers } from './registerCommonHandlers';
+
+function createTestRpcManager(params?: { scopePrefix?: string }) {
+    const encryptionKey = new Uint8Array(32).fill(7);
+    const encryptionVariant = 'legacy' as const;
+    const scopePrefix = params?.scopePrefix ?? 'machine-test';
+
+    const manager = new RpcHandlerManager({
+        scopePrefix,
+        encryptionKey,
+        encryptionVariant,
+        logger: () => undefined,
+    });
+
+    registerCommonHandlers(manager, process.cwd());
+
+    async function call<T>(method: string, request: unknown): Promise<T> {
+        const encryptedParams = encodeBase64(encrypt(encryptionKey, encryptionVariant, request));
+        const encryptedResponse = await manager.handleRequest({
+            method: `${scopePrefix}:${method}`,
+            params: encryptedParams,
+        } as any);
+        const decrypted = decrypt(encryptionKey, encryptionVariant, decodeBase64(encryptedResponse));
+        return decrypted as T;
+    }
+
+    return { call };
+}
+
+describe('registerCommonHandlers preview-env', () => {
+    const originalEnv = { ...process.env };
+
+    beforeEach(() => {
+        process.env = { ...originalEnv };
+    });
+
+    afterEach(() => {
+        process.env = { ...originalEnv };
+    });
+
+    it('returns effective env values with embedded ${VAR} expansion', async () => {
+        process.env.PATH = '/usr/bin';
+        process.env.HAPPY_ENV_PREVIEW_SECRETS = 'none';
+
+        const { call } = createTestRpcManager();
+
+        const result = await call<any>('preview-env', {
+            keys: ['PATH'],
+            extraEnv: {
+                PATH: '/opt/bin:${PATH}',
+            },
+        });
+
+        expect(result.policy).toBe('none');
+        expect(result.values.PATH.display).toBe('full');
+        expect(result.values.PATH.value).toBe('/opt/bin:/usr/bin');
+    });
+
+    it('hides sensitive values when HAPPY_ENV_PREVIEW_SECRETS=none', async () => {
+        process.env.SECRET_TOKEN = 'sk-1234567890';
+        process.env.HAPPY_ENV_PREVIEW_SECRETS = 'none';
+
+        const { call } = createTestRpcManager();
+
+        const result = await call<any>('preview-env', {
+            keys: ['ANTHROPIC_AUTH_TOKEN'],
+            extraEnv: {
+                ANTHROPIC_AUTH_TOKEN: '${SECRET_TOKEN}',
+            },
+            sensitiveHints: {
+                SECRET_TOKEN: true,
+                ANTHROPIC_AUTH_TOKEN: true,
+            },
+        });
+
+        expect(result.policy).toBe('none');
+        expect(result.values.ANTHROPIC_AUTH_TOKEN.isSensitive).toBe(true);
+        expect(result.values.ANTHROPIC_AUTH_TOKEN.display).toBe('hidden');
+        expect(result.values.ANTHROPIC_AUTH_TOKEN.value).toBeNull();
+    });
+
+    it('redacts sensitive values when HAPPY_ENV_PREVIEW_SECRETS=redacted', async () => {
+        process.env.SECRET_TOKEN = 'sk-1234567890';
+        process.env.HAPPY_ENV_PREVIEW_SECRETS = 'redacted';
+
+        const { call } = createTestRpcManager();
+
+        const result = await call<any>('preview-env', {
+            keys: ['ANTHROPIC_AUTH_TOKEN'],
+            extraEnv: {
+                ANTHROPIC_AUTH_TOKEN: '${SECRET_TOKEN}',
+            },
+            sensitiveHints: {
+                SECRET_TOKEN: true,
+                ANTHROPIC_AUTH_TOKEN: true,
+            },
+        });
+
+        expect(result.policy).toBe('redacted');
+        expect(result.values.ANTHROPIC_AUTH_TOKEN.display).toBe('redacted');
+        expect(result.values.ANTHROPIC_AUTH_TOKEN.value).toBe('sk-*******890');
+    });
+
+    it('returns full sensitive values when HAPPY_ENV_PREVIEW_SECRETS=full', async () => {
+        process.env.SECRET_TOKEN = 'sk-1234567890';
+        process.env.HAPPY_ENV_PREVIEW_SECRETS = 'full';
+
+        const { call } = createTestRpcManager();
+
+        const result = await call<any>('preview-env', {
+            keys: ['ANTHROPIC_AUTH_TOKEN'],
+            extraEnv: {
+                ANTHROPIC_AUTH_TOKEN: '${SECRET_TOKEN}',
+            },
+            sensitiveHints: {
+                SECRET_TOKEN: true,
+                ANTHROPIC_AUTH_TOKEN: true,
+            },
+        });
+
+        expect(result.policy).toBe('full');
+        expect(result.values.ANTHROPIC_AUTH_TOKEN.display).toBe('full');
+        expect(result.values.ANTHROPIC_AUTH_TOKEN.value).toBe('sk-1234567890');
+    });
+});
+
