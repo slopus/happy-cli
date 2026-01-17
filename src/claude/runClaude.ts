@@ -241,6 +241,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     // Forward messages to the queue
     // Permission modes: Use the unified 7-mode type, mapping happens at SDK boundary in claudeRemote.ts
     let currentPermissionMode: PermissionMode | undefined = options.permissionMode;
+    const cliPermissionMode = options.permissionMode; // Remember CLI's explicit permission mode (e.g., --yolo)
     let currentModel = options.model; // Track current model state
     let currentFallbackModel: string | undefined = undefined; // Track current fallback model
     let currentCustomSystemPrompt: string | undefined = undefined; // Track current custom system prompt
@@ -250,11 +251,20 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     session.onUserMessage((message) => {
 
         // Resolve permission mode from meta - pass through as-is, mapping happens at SDK boundary
+        // If CLI was started with explicit mode (e.g., --yolo), don't let "default" messages override it
         let messagePermissionMode: PermissionMode | undefined = currentPermissionMode;
         if (message.meta?.permissionMode) {
-            messagePermissionMode = message.meta.permissionMode;
-            currentPermissionMode = messagePermissionMode;
-            logger.debug(`[loop] Permission mode updated from user message to: ${currentPermissionMode}`);
+            const incomingMode = message.meta.permissionMode as PermissionMode;
+            // Only override CLI's explicit mode if message has a non-default mode
+            // This ensures --yolo persists unless mobile explicitly changes to a different mode
+            if (cliPermissionMode && incomingMode === 'default') {
+                messagePermissionMode = cliPermissionMode;
+                logger.debug(`[loop] Keeping CLI permission mode (${cliPermissionMode}) instead of message's "default"`);
+            } else {
+                messagePermissionMode = incomingMode;
+                currentPermissionMode = messagePermissionMode;
+                logger.debug(`[loop] Permission mode updated from user message to: ${currentPermissionMode}`);
+            }
         } else {
             logger.debug(`[loop] User message received with no permission mode override, using current: ${currentPermissionMode}`);
         }
