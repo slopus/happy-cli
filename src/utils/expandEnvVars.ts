@@ -28,7 +28,10 @@ import { logger } from '@/ui/logger';
  */
 export function expandEnvironmentVariables(
     envVars: Record<string, string>,
-    sourceEnv: NodeJS.ProcessEnv = process.env
+    sourceEnv: NodeJS.ProcessEnv = process.env,
+    options?: {
+        warnOnUndefined?: boolean;
+    }
 ): Record<string, string> {
     const expanded: Record<string, string> = {};
     const undefinedVars: string[] = [];
@@ -86,7 +89,8 @@ export function expandEnvironmentVariables(
     }
 
     // Log warning if any variables couldn't be resolved
-    if (undefinedVars.length > 0) {
+    const warnOnUndefined = options?.warnOnUndefined ?? true;
+    if (warnOnUndefined && undefinedVars.length > 0) {
         logger.warn(`[EXPAND ENV] Undefined variables referenced in profile environment: ${undefinedVars.join(', ')}`);
         logger.warn(`[EXPAND ENV] Session may fail to authenticate. Set these in daemon environment before launching:`);
         undefinedVars.forEach(varName => {
