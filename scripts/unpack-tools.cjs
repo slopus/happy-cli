@@ -17,17 +17,18 @@ const os = require('os');
 function getPlatformDir() {
     const platform = os.platform();
     const arch = os.arch();
-    
+
     if (platform === 'darwin') {
         if (arch === 'arm64') return 'arm64-darwin';
         if (arch === 'x64') return 'x64-darwin';
-    } else if (platform === 'linux') {
+    } else if (platform === 'linux' || platform === 'android') {
+        // Treat Android (Termux) as Linux since it uses Linux binaries
         if (arch === 'arm64') return 'arm64-linux';
         if (arch === 'x64') return 'x64-linux';
     } else if (platform === 'win32') {
         if (arch === 'x64') return 'x64-win32';
     }
-    
+
     throw new Error(`Unsupported platform: ${arch}-${platform}`);
 }
 
