@@ -65,6 +65,21 @@ function writeDumpScript(dir: string): string {
     return scriptPath;
 }
 
+type DumpScriptPayload = {
+    argv: string[];
+    env: {
+        FOO?: string;
+        BAR?: string;
+        TMUX?: string;
+        TMUX_PANE?: string;
+        TMUX_TMPDIR?: string;
+    };
+};
+
+function readDumpPayload(outFile: string): DumpScriptPayload {
+    return JSON.parse(readFileSync(outFile, 'utf8')) as DumpScriptPayload;
+}
+
 async function withCleanTmuxClientEnv<T>(fn: () => Promise<T>): Promise<T> {
     const originalTmux = process.env.TMUX;
     const originalTmuxPane = process.env.TMUX_PANE;
@@ -118,6 +133,19 @@ function runTmux(args: string[], options?: { env?: Record<string, string | undef
     };
 }
 
+function killIsolatedTmuxServer(socketPath: string): void {
+    const result = runTmux(['-S', socketPath, 'kill-server']);
+    if (result.status !== 0 && process.env.DEBUG) {
+        // Cleanup should never fail the test run, but debug logging can help diagnose flakes.
+        console.error('[tmux-it] Failed to kill isolated tmux server', {
+            socketPath,
+            status: result.status,
+            stderr: result.stderr,
+            error: result.error?.message,
+        });
+    }
+}
+
 describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt-in)', { timeout: 20_000 }, () => {
     it('spawnInTmux returns a real pane PID via -P/-F (regression: PR107 option ordering)', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'happy-cli-tmux-it-'));
@@ -148,7 +176,7 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
             expect(listedPid).toBe(result.pid);
 
             await waitForFile(outFile, 2_000);
-            const payload = JSON.parse(readFileSync(outFile, 'utf8')) as any;
+            const payload = readDumpPayload(outFile);
             expect(payload.argv).toEqual(['pid-check']);
 
             // Validate the TMUX env format: socket_path,server_pid,pane (not session/window).
@@ -159,7 +187,7 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
             expect(/^\d+$/.test(parts[1]!)).toBe(true);
         } finally {
             // Kill only the isolated server (never touch the user's default tmux server).
-            void runTmux(['-S', socketPath, 'kill-server']);
+            killIsolatedTmuxServer(socketPath);
             rmSync(dir, { recursive: true, force: true });
         }
     });
@@ -190,12 +218,12 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
             expect(result.success).toBe(true);
 
             await waitForFile(outFile, 2_000);
-            const payload = JSON.parse(readFileSync(outFile, 'utf8')) as any;
+            const payload = readDumpPayload(outFile);
 
             expect(payload.env?.FOO).toBe(env.FOO);
             expect(payload.env?.BAR).toBe(env.BAR);
         } finally {
-            void runTmux(['-S', socketPath, 'kill-server']);
+            killIsolatedTmuxServer(socketPath);
             rmSync(dir, { recursive: true, force: true });
         }
     });
@@ -226,13 +254,13 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
             expect(result.success).toBe(true);
 
             await waitForFile(outFile, 2_000);
-            const payload = JSON.parse(readFileSync(outFile, 'utf8')) as any;
+            const payload = readDumpPayload(outFile);
             expect(payload.argv).toEqual([argWithSpaces, argWithSingleQuote, injectionArg]);
 
             // If quoting were broken, the shell would execute `touch <sentinel>` and create the file.
             expect(existsSync(sentinelFile)).toBe(false);
         } finally {
-            void runTmux(['-S', socketPath, 'kill-server']);
+            killIsolatedTmuxServer(socketPath);
             rmSync(dir, { recursive: true, force: true });
         }
     });
@@ -274,11 +302,19 @@ describe.skipIf(!shouldRunTmuxIntegration())('tmux (real) integration tests (opt
             expect(isolatedList.stdout.includes(sessionName)).toBe(true);
 
             await waitForFile(outFile, 2_000);
-            const payload = JSON.parse(readFileSync(outFile, 'utf8')) as any;
+            const payload = readDumpPayload(outFile);
             expect(payload.argv).toEqual(['tmpdir-check']);
         } finally {
             // Kill only the isolated server identified by TMUX_TMPDIR.
-            void runTmux(['kill-server'], { env: { TMUX_TMPDIR: tmuxTmpDir } });
+            const result = runTmux(['kill-server'], { env: { TMUX_TMPDIR: tmuxTmpDir } });
+            if (result.status !== 0 && process.env.DEBUG) {
+                console.error('[tmux-it] Failed to kill isolated tmux server via TMUX_TMPDIR', {
+                    tmuxTmpDir,
+                    status: result.status,
+                    stderr: result.stderr,
+                    error: result.error?.message,
+                });
+            }
             rmSync(tmuxTmpDir, { recursive: true, force: true });
             rmSync(dir, { recursive: true, force: true });
         }
