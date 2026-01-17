@@ -16,36 +16,88 @@ import { logger } from '@/ui/logger';
 // AI backend profile schema - MUST match happy app exactly
 // Using same Zod schema as GUI for runtime validation consistency
 
-// Environment variable schemas for different AI providers (matching GUI exactly)
-const AnthropicConfigSchema = z.object({
-    baseUrl: z.string().url().optional(),
-    authToken: z.string().optional(),
-    model: z.string().optional(),
-});
+function mergeEnvironmentVariables(
+  existing: unknown,
+  additions: Record<string, string | undefined>
+): Array<{ name: string; value: string }> {
+  /**
+   * Merge strategy: preserve explicit `environmentVariables` entries.
+   *
+   * Legacy provider config objects (e.g. `openaiConfig.apiKey`) are treated as
+   * "defaults" and only fill missing keys, so they never override a user-set
+   * env var entry that already exists in `environmentVariables`.
+   */
+  const map = new Map<string, string>();
 
-const OpenAIConfigSchema = z.object({
-    apiKey: z.string().optional(),
-    baseUrl: z.string().url().optional(),
-    model: z.string().optional(),
-});
+  if (Array.isArray(existing)) {
+    for (const entry of existing) {
+      if (!entry || typeof entry !== 'object') continue;
+      const record = entry as Record<string, unknown>;
+      const name = record.name;
+      const value = record.value;
+      if (typeof name !== 'string' || typeof value !== 'string') continue;
+      map.set(name, value);
+    }
+  }
 
-const AzureOpenAIConfigSchema = z.object({
-    apiKey: z.string().optional(),
-    endpoint: z.string().url().optional(),
-    apiVersion: z.string().optional(),
-    deploymentName: z.string().optional(),
-});
+  for (const [name, value] of Object.entries(additions)) {
+    if (typeof value !== 'string') continue;
+    if (!map.has(name)) {
+      map.set(name, value);
+    }
+  }
 
-const TogetherAIConfigSchema = z.object({
-    apiKey: z.string().optional(),
-    model: z.string().optional(),
-});
+  return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
+}
+
+function normalizeLegacyProfileConfig(profile: unknown): unknown {
+  if (!profile || typeof profile !== 'object') return profile;
+
+  const raw = profile as Record<string, unknown>;
+
+  const readString = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined);
+  const asRecord = (value: unknown): Record<string, unknown> | null =>
+    value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+
+  const anthropicConfig = asRecord(raw.anthropicConfig);
+  const openaiConfig = asRecord(raw.openaiConfig);
+  const azureOpenAIConfig = asRecord(raw.azureOpenAIConfig);
+  const togetherAIConfig = asRecord(raw.togetherAIConfig);
+
+  const additions: Record<string, string | undefined> = {
+    ANTHROPIC_BASE_URL: readString(anthropicConfig?.baseUrl),
+    ANTHROPIC_AUTH_TOKEN: readString(anthropicConfig?.authToken),
+    ANTHROPIC_MODEL: readString(anthropicConfig?.model),
+    OPENAI_API_KEY: readString(openaiConfig?.apiKey),
+    OPENAI_BASE_URL: readString(openaiConfig?.baseUrl),
+    OPENAI_MODEL: readString(openaiConfig?.model),
+    AZURE_OPENAI_API_KEY: readString(azureOpenAIConfig?.apiKey),
+    AZURE_OPENAI_ENDPOINT: readString(azureOpenAIConfig?.endpoint),
+    AZURE_OPENAI_API_VERSION: readString(azureOpenAIConfig?.apiVersion),
+    AZURE_OPENAI_DEPLOYMENT_NAME: readString(azureOpenAIConfig?.deploymentName),
+    TOGETHER_API_KEY: readString(togetherAIConfig?.apiKey),
+    TOGETHER_MODEL: readString(togetherAIConfig?.model),
+  };
+
+  const environmentVariables = mergeEnvironmentVariables(raw.environmentVariables, additions);
+
+  // Remove legacy provider config objects. Any values are preserved via environmentVariables migration above.
+  const rest: Record<string, unknown> = { ...raw };
+  delete rest.anthropicConfig;
+  delete rest.openaiConfig;
+  delete rest.azureOpenAIConfig;
+  delete rest.togetherAIConfig;
+
+  return {
+    ...rest,
+    environmentVariables,
+  };
+}
 
 // Tmux configuration schema (matching GUI exactly)
 const TmuxConfigSchema = z.object({
     sessionName: z.string().optional(),
     tmpDir: z.string().optional(),
-    updateEnvironment: z.boolean().optional(),
 });
 
 // Environment variables schema with validation (matching GUI exactly)
@@ -61,17 +113,12 @@ const ProfileCompatibilitySchema = z.object({
     gemini: z.boolean().default(true),
 });
 
-// AIBackendProfile schema - EXACT MATCH with GUI schema
-export const AIBackendProfileSchema = z.object({
-    id: z.string().uuid(),
+// AIBackendProfile schema - MUST match happy app
+export const AIBackendProfileSchema = z.preprocess(normalizeLegacyProfileConfig, z.object({
+    // Accept both UUIDs (user profiles) and simple strings (built-in profiles)
+    id: z.string().min(1),
     name: z.string().min(1).max(100),
     description: z.string().max(500).optional(),
-
-    // Agent-specific configurations
-    anthropicConfig: AnthropicConfigSchema.optional(),
-    openaiConfig: OpenAIConfigSchema.optional(),
-    azureOpenAIConfig: AzureOpenAIConfigSchema.optional(),
-    togetherAIConfig: TogetherAIConfigSchema.optional(),
 
     // Tmux configuration
     tmuxConfig: TmuxConfigSchema.optional(),
@@ -101,7 +148,7 @@ export const AIBackendProfileSchema = z.object({
     createdAt: z.number().default(() => Date.now()),
     updatedAt: z.number().default(() => Date.now()),
     version: z.string().default('1.0.0'),
-});
+}));
 
 export type AIBackendProfile = z.infer<typeof AIBackendProfileSchema>;
 
@@ -118,42 +165,12 @@ export function getProfileEnvironmentVariables(profile: AIBackendProfile): Recor
     envVars[envVar.name] = envVar.value;
   });
 
-  // Add Anthropic config
-  if (profile.anthropicConfig) {
-    if (profile.anthropicConfig.baseUrl) envVars.ANTHROPIC_BASE_URL = profile.anthropicConfig.baseUrl;
-    if (profile.anthropicConfig.authToken) envVars.ANTHROPIC_AUTH_TOKEN = profile.anthropicConfig.authToken;
-    if (profile.anthropicConfig.model) envVars.ANTHROPIC_MODEL = profile.anthropicConfig.model;
-  }
-
-  // Add OpenAI config
-  if (profile.openaiConfig) {
-    if (profile.openaiConfig.apiKey) envVars.OPENAI_API_KEY = profile.openaiConfig.apiKey;
-    if (profile.openaiConfig.baseUrl) envVars.OPENAI_BASE_URL = profile.openaiConfig.baseUrl;
-    if (profile.openaiConfig.model) envVars.OPENAI_MODEL = profile.openaiConfig.model;
-  }
-
-  // Add Azure OpenAI config
-  if (profile.azureOpenAIConfig) {
-    if (profile.azureOpenAIConfig.apiKey) envVars.AZURE_OPENAI_API_KEY = profile.azureOpenAIConfig.apiKey;
-    if (profile.azureOpenAIConfig.endpoint) envVars.AZURE_OPENAI_ENDPOINT = profile.azureOpenAIConfig.endpoint;
-    if (profile.azureOpenAIConfig.apiVersion) envVars.AZURE_OPENAI_API_VERSION = profile.azureOpenAIConfig.apiVersion;
-    if (profile.azureOpenAIConfig.deploymentName) envVars.AZURE_OPENAI_DEPLOYMENT_NAME = profile.azureOpenAIConfig.deploymentName;
-  }
-
-  // Add Together AI config
-  if (profile.togetherAIConfig) {
-    if (profile.togetherAIConfig.apiKey) envVars.TOGETHER_API_KEY = profile.togetherAIConfig.apiKey;
-    if (profile.togetherAIConfig.model) envVars.TOGETHER_MODEL = profile.togetherAIConfig.model;
-  }
-
   // Add Tmux config
   if (profile.tmuxConfig) {
     // Empty string means "use current/most recent session", so include it
     if (profile.tmuxConfig.sessionName !== undefined) envVars.TMUX_SESSION_NAME = profile.tmuxConfig.sessionName;
-    if (profile.tmuxConfig.tmpDir) envVars.TMUX_TMPDIR = profile.tmuxConfig.tmpDir;
-    if (profile.tmuxConfig.updateEnvironment !== undefined) {
-      envVars.TMUX_UPDATE_ENVIRONMENT = profile.tmuxConfig.updateEnvironment.toString();
-    }
+    // Empty string may be valid to use tmux defaults; include if explicitly provided.
+    if (profile.tmuxConfig.tmpDir !== undefined) envVars.TMUX_TMPDIR = profile.tmuxConfig.tmpDir;
   }
 
   return envVars;
@@ -177,7 +194,8 @@ export const CURRENT_PROFILE_VERSION = '1.0.0';
 // Settings schema version: Integer for overall Settings structure compatibility
 // Incremented when Settings structure changes (e.g., adding profiles array was v1→v2)
 // Used for migration logic in readSettings()
-export const SUPPORTED_SCHEMA_VERSION = 2;
+// NOTE: This is the schema for happy-cli's local settings file (not the Happy app's server-synced account settings).
+export const SUPPORTED_SCHEMA_VERSION = 3;
 
 // Profile version validation
 export function validateProfileVersion(profile: AIBackendProfile): boolean {
@@ -206,15 +224,12 @@ interface Settings {
   // Profile management settings (synced with happy app)
   activeProfileId?: string
   profiles: AIBackendProfile[]
-  // CLI-local environment variable cache (not synced)
-  localEnvironmentVariables: Record<string, Record<string, string>> // profileId -> env vars
 }
 
 const defaultSettings: Settings = {
   schemaVersion: SUPPORTED_SCHEMA_VERSION,
   onboardingCompleted: false,
   profiles: [],
-  localEnvironmentVariables: {}
 }
 
 /**
@@ -230,16 +245,20 @@ function migrateSettings(raw: any, fromVersion: number): any {
     if (!migrated.profiles) {
       migrated.profiles = [];
     }
-    // Ensure localEnvironmentVariables exists
-    if (!migrated.localEnvironmentVariables) {
-      migrated.localEnvironmentVariables = {};
-    }
     // Update schema version
     migrated.schemaVersion = 2;
   }
 
+  // Migration from v2 to v3 (removed CLI-local env cache)
+  if (fromVersion < 3) {
+    if ('localEnvironmentVariables' in migrated) {
+      delete migrated.localEnvironmentVariables;
+    }
+    migrated.schemaVersion = 3;
+  }
+
   // Future migrations go here:
-  // if (fromVersion < 3) { ... }
+  // if (fromVersion < 4) { ... }
 
   return migrated;
 }
@@ -641,66 +660,3 @@ export async function updateProfiles(profiles: unknown[]): Promise<void> {
     };
   });
 }
-
-/**
- * Get environment variables for a profile
- * Combines profile custom env vars with CLI-local cached env vars
- */
-export async function getEnvironmentVariables(profileId: string): Promise<Record<string, string>> {
-  const settings = await readSettings();
-  const profile = settings.profiles.find(p => p.id === profileId);
-  if (!profile) return {};
-
-  // Start with profile's environment variables (new schema)
-  const envVars: Record<string, string> = {};
-  if (profile.environmentVariables) {
-    profile.environmentVariables.forEach(envVar => {
-      envVars[envVar.name] = envVar.value;
-    });
-  }
-
-  // Override with CLI-local cached environment variables
-  const localEnvVars = settings.localEnvironmentVariables[profileId] || {};
-  Object.assign(envVars, localEnvVars);
-
-  return envVars;
-}
-
-/**
- * Set environment variables for a profile in CLI-local cache
- */
-export async function setEnvironmentVariables(profileId: string, envVars: Record<string, string>): Promise<void> {
-  await updateSettings(settings => ({
-    ...settings,
-    localEnvironmentVariables: {
-      ...settings.localEnvironmentVariables,
-      [profileId]: envVars
-    }
-  }));
-}
-
-/**
- * Get a specific environment variable for a profile
- * Checks CLI-local cache first, then profile environment variables
- */
-export async function getEnvironmentVariable(profileId: string, key: string): Promise<string | undefined> {
-  const settings = await readSettings();
-
-  // Check CLI-local cache first
-  const localEnvVars = settings.localEnvironmentVariables[profileId] || {};
-  if (localEnvVars[key] !== undefined) {
-    return localEnvVars[key];
-  }
-
-  // Fall back to profile environment variables (new schema)
-  const profile = settings.profiles.find(p => p.id === profileId);
-  if (profile?.environmentVariables) {
-    const envVar = profile.environmentVariables.find(env => env.name === key);
-    if (envVar) {
-      return envVar.value;
-    }
-  }
-
-  return undefined;
-}
-

@@ -102,14 +102,30 @@ export class ApiMachineClient {
     }: MachineRpcHandlers) {
         // Register spawn session handler
         this.rpcHandlerManager.registerHandler('spawn-happy-session', async (params: any) => {
-            const { directory, sessionId, machineId, approvedNewDirectoryCreation, agent, token, environmentVariables } = params || {};
-            logger.debug(`[API MACHINE] Spawning session with params: ${JSON.stringify(params)}`);
+            const { directory, sessionId, machineId, approvedNewDirectoryCreation, agent, token, environmentVariables, profileId } = params || {};
+            const envKeys = environmentVariables && typeof environmentVariables === 'object'
+                ? Object.keys(environmentVariables as Record<string, unknown>)
+                : [];
+            const maxEnvKeysToLog = 20;
+            const envKeySample = envKeys.slice(0, maxEnvKeysToLog);
+            logger.debug('[API MACHINE] Spawning session', {
+                directory,
+                sessionId,
+                machineId,
+                agent,
+                approvedNewDirectoryCreation,
+                profileId,
+                hasToken: !!token,
+                environmentVariableCount: envKeys.length,
+                environmentVariableKeySample: envKeySample,
+                environmentVariableKeysTruncated: envKeys.length > maxEnvKeysToLog,
+            });
 
             if (!directory) {
                 throw new Error('Directory is required');
             }
 
-            const result = await spawnSession({ directory, sessionId, machineId, approvedNewDirectoryCreation, agent, token, environmentVariables });
+            const result = await spawnSession({ directory, sessionId, machineId, approvedNewDirectoryCreation, agent, token, environmentVariables, profileId });
 
             switch (result.type) {
                 case 'success':
