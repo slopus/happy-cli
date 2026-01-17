@@ -32,8 +32,9 @@ function mergeEnvironmentVariables(
   if (Array.isArray(existing)) {
     for (const entry of existing) {
       if (!entry || typeof entry !== 'object') continue;
-      const name = (entry as any).name;
-      const value = (entry as any).value;
+      const record = entry as Record<string, unknown>;
+      const name = record.name;
+      const value = record.value;
       if (typeof name !== 'string' || typeof value !== 'string') continue;
       map.set(name, value);
     }
@@ -52,26 +53,41 @@ function mergeEnvironmentVariables(
 function normalizeLegacyProfileConfig(profile: unknown): unknown {
   if (!profile || typeof profile !== 'object') return profile;
 
-  const raw = profile as Record<string, any>;
+  const raw = profile as Record<string, unknown>;
+
+  const readString = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined);
+  const asRecord = (value: unknown): Record<string, unknown> | null =>
+    value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+
+  const anthropicConfig = asRecord(raw.anthropicConfig);
+  const openaiConfig = asRecord(raw.openaiConfig);
+  const azureOpenAIConfig = asRecord(raw.azureOpenAIConfig);
+  const togetherAIConfig = asRecord(raw.togetherAIConfig);
+
   const additions: Record<string, string | undefined> = {
-    ANTHROPIC_BASE_URL: raw.anthropicConfig?.baseUrl,
-    ANTHROPIC_AUTH_TOKEN: raw.anthropicConfig?.authToken,
-    ANTHROPIC_MODEL: raw.anthropicConfig?.model,
-    OPENAI_API_KEY: raw.openaiConfig?.apiKey,
-    OPENAI_BASE_URL: raw.openaiConfig?.baseUrl,
-    OPENAI_MODEL: raw.openaiConfig?.model,
-    AZURE_OPENAI_API_KEY: raw.azureOpenAIConfig?.apiKey,
-    AZURE_OPENAI_ENDPOINT: raw.azureOpenAIConfig?.endpoint,
-    AZURE_OPENAI_API_VERSION: raw.azureOpenAIConfig?.apiVersion,
-    AZURE_OPENAI_DEPLOYMENT_NAME: raw.azureOpenAIConfig?.deploymentName,
-    TOGETHER_API_KEY: raw.togetherAIConfig?.apiKey,
-    TOGETHER_MODEL: raw.togetherAIConfig?.model,
+    ANTHROPIC_BASE_URL: readString(anthropicConfig?.baseUrl),
+    ANTHROPIC_AUTH_TOKEN: readString(anthropicConfig?.authToken),
+    ANTHROPIC_MODEL: readString(anthropicConfig?.model),
+    OPENAI_API_KEY: readString(openaiConfig?.apiKey),
+    OPENAI_BASE_URL: readString(openaiConfig?.baseUrl),
+    OPENAI_MODEL: readString(openaiConfig?.model),
+    AZURE_OPENAI_API_KEY: readString(azureOpenAIConfig?.apiKey),
+    AZURE_OPENAI_ENDPOINT: readString(azureOpenAIConfig?.endpoint),
+    AZURE_OPENAI_API_VERSION: readString(azureOpenAIConfig?.apiVersion),
+    AZURE_OPENAI_DEPLOYMENT_NAME: readString(azureOpenAIConfig?.deploymentName),
+    TOGETHER_API_KEY: readString(togetherAIConfig?.apiKey),
+    TOGETHER_MODEL: readString(togetherAIConfig?.model),
   };
 
   const environmentVariables = mergeEnvironmentVariables(raw.environmentVariables, additions);
 
   // Remove legacy provider config objects. Any values are preserved via environmentVariables migration above.
-  const { anthropicConfig, openaiConfig, azureOpenAIConfig, togetherAIConfig, ...rest } = raw;
+  const rest: Record<string, unknown> = { ...raw };
+  delete rest.anthropicConfig;
+  delete rest.openaiConfig;
+  delete rest.azureOpenAIConfig;
+  delete rest.togetherAIConfig;
+
   return {
     ...rest,
     environmentVariables,
