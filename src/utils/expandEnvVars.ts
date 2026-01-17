@@ -35,6 +35,14 @@ export function expandEnvironmentVariables(
 ): Record<string, string> {
     const expanded: Record<string, string> = {};
     const undefinedVars: string[] = [];
+    const assignedEnv: Record<string, string> = {};
+
+    function readEnv(varName: string): string | undefined {
+        if (Object.prototype.hasOwnProperty.call(assignedEnv, varName)) {
+            return assignedEnv[varName];
+        }
+        return sourceEnv[varName];
+    }
 
     for (const [key, value] of Object.entries(envVars)) {
         // Replace all ${VAR}, ${VAR:-default}, and ${VAR:=default} references with actual values from sourceEnv
@@ -45,10 +53,14 @@ export function expandEnvironmentVariables(
             const colonEqIndex = expr.indexOf(':=');
             let varName: string;
             let defaultValue: string | undefined;
+            let operator: ':-' | ':=' | null = null;
 
             if (colonDashIndex !== -1 || colonEqIndex !== -1) {
                 // Split ${VAR:-default} or ${VAR:=default} into varName and defaultValue
-                const idx = colonDashIndex !== -1 ? colonDashIndex : colonEqIndex;
+                const idx = colonDashIndex !== -1 && (colonEqIndex === -1 || colonDashIndex < colonEqIndex)
+                    ? colonDashIndex
+                    : colonEqIndex;
+                operator = idx === colonDashIndex ? ':-' : ':=';
                 varName = expr.substring(0, idx);
                 defaultValue = expr.substring(idx + 2);
             } else {
@@ -56,7 +68,7 @@ export function expandEnvironmentVariables(
                 varName = expr;
             }
 
-            const resolvedValue = sourceEnv[varName];
+            const resolvedValue = readEnv(varName);
             const shouldTreatEmptyAsMissing = defaultValue !== undefined;
             const isMissing = resolvedValue === undefined || (shouldTreatEmptyAsMissing && resolvedValue === '');
 
@@ -67,7 +79,7 @@ export function expandEnvironmentVariables(
                 }
 
                 // Warn if empty string (common mistake)
-                if (resolvedValue === '') {
+                if (resolvedValue === '' && !Object.prototype.hasOwnProperty.call(assignedEnv, varName)) {
                     logger.warn(`[EXPAND ENV] WARNING: ${varName} is set but EMPTY in daemon environment`);
                 }
 
@@ -76,6 +88,9 @@ export function expandEnvironmentVariables(
                 // Variable not found but default value provided - use default
                 if (process.env.DEBUG) {
                     logger.debug(`[EXPAND ENV] Using default value for ${varName}`);
+                }
+                if (operator === ':=') {
+                    assignedEnv[varName] = defaultValue;
                 }
                 return defaultValue;
             } else {
