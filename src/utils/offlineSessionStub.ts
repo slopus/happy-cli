@@ -11,36 +11,63 @@
  */
 
 import { EventEmitter } from 'node:events';
-import type { ApiSessionClient } from '@/api/apiSession';
-import type { RpcHandler } from '@/api/rpc/types';
+import type { ACPMessageData, ACPProvider, ApiSessionClient } from '@/api/apiSession';
+import { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager';
+import type { AgentState, Metadata, Usage, UserMessage } from '@/api/types';
+import type { RawJSONLines } from '@/claude/types';
 
-class OfflineSessionStub extends EventEmitter {
-    sessionId: string;
-    rpcHandlerManager: {
-        registerHandler: <TRequest = any, TResponse = any>(method: string, handler: RpcHandler<TRequest, TResponse>) => void;
-    };
+type ApiSessionClientStubContract = Pick<
+    ApiSessionClient,
+    | 'sessionId'
+    | 'rpcHandlerManager'
+    | 'sendCodexMessage'
+    | 'sendAgentMessage'
+    | 'sendClaudeSessionMessage'
+    | 'sendSessionEvent'
+    | 'keepAlive'
+    | 'sendSessionDeath'
+    | 'sendUsageData'
+    | 'updateMetadata'
+    | 'updateAgentState'
+    | 'onUserMessage'
+    | 'flush'
+    | 'close'
+>;
+
+class OfflineSessionStub extends EventEmitter implements ApiSessionClientStubContract {
+    readonly sessionId: string;
+    readonly rpcHandlerManager: RpcHandlerManager;
 
     constructor(sessionId: string) {
         super();
         this.sessionId = sessionId;
-        this.rpcHandlerManager = {
-            registerHandler: () => {},
-        };
+        this.rpcHandlerManager = new RpcHandlerManager({
+            scopePrefix: this.sessionId,
+            encryptionKey: new Uint8Array(32),
+            encryptionVariant: 'legacy',
+            logger: () => undefined,
+        });
     }
 
-    sendCodexMessage(): void {}
-    sendAgentMessage(): void {}
-    sendClaudeSessionMessage(): void {}
-    keepAlive(): void {}
-    sendSessionEvent(): void {}
+    sendCodexMessage(_body: unknown): void {}
+    sendAgentMessage(_provider: ACPProvider, _body: ACPMessageData): void {}
+    sendClaudeSessionMessage(_body: RawJSONLines): void {}
+    sendSessionEvent(
+        _event:
+            | { type: 'switch'; mode: 'local' | 'remote' }
+            | { type: 'message'; message: string }
+            | { type: 'permission-mode-changed'; mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' }
+            | { type: 'ready' },
+        _id?: string
+    ): void {}
+    keepAlive(_thinking: boolean, _mode: 'local' | 'remote'): void {}
     sendSessionDeath(): void {}
-    updateLifecycleState(): void {}
-    requestControlTransfer = async (): Promise<void> => {};
-    flush = async (): Promise<void> => {};
-    close = async (): Promise<void> => {};
-    updateMetadata(): void {}
-    updateAgentState(): void {}
-    onUserMessage(): void {}
+    sendUsageData(_usage: Usage): void {}
+    updateMetadata(_handler: (metadata: Metadata) => Metadata): void {}
+    updateAgentState(_handler: (metadata: AgentState) => AgentState): void {}
+    onUserMessage(_callback: (data: UserMessage) => void): void {}
+    async flush(): Promise<void> {}
+    async close(): Promise<void> {}
 }
 
 /**
@@ -63,5 +90,8 @@ class OfflineSessionStub extends EventEmitter {
  * ```
  */
 export function createOfflineSessionStub(sessionTag: string): ApiSessionClient {
-    return new OfflineSessionStub(`offline-${sessionTag}`) as unknown as ApiSessionClient;
+    const stub = new OfflineSessionStub(`offline-${sessionTag}`);
+    const _typecheck: ApiSessionClientStubContract = stub;
+    void _typecheck;
+    return stub as unknown as ApiSessionClient;
 }
