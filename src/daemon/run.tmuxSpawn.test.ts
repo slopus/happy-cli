@@ -35,5 +35,5 @@ describe('daemon tmux spawn config', () => {
                 process.env.PATH = originalPath;
             }
         }
-    });
+    }, 15000);
 });

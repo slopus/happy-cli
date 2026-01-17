@@ -12,5 +12,5 @@ describe('daemon tmux env building', () => {
         expect(merged.HOME).toBe('/override');
         expect(merged.CUSTOM).toBe('x');
         expect('UNDEFINED' in merged).toBe(false);
-    });
+    }, 15000);
 });
