@@ -89,6 +89,18 @@ describe('Ripgrep Launcher Runtime Compatibility', () => {
             expect(content).toContain('brew install ripgrep');
             expect(content).toContain('winget install BurntSushi.ripgrep');
             expect(content).toContain('Search functionality unavailable');
+            expect(content).toContain('Missing arguments: expected JSON-encoded argv');
         }).not.toThrow();
     });
-});
+
+    it('does not treat signal termination as success', () => {
+        expect(() => {
+            const fs = require('fs');
+            const path = require('path');
+            const content = fs.readFileSync(path.join(__dirname, '../ripgrep_launcher.cjs'), 'utf8');
+
+            expect(content).not.toContain('result.status || 0');
+            expect(content).toContain('result.signal');
+        }).not.toThrow();
+    });
+}); 

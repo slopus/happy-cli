@@ -218,7 +218,7 @@ export type Machine = {
   id: string,
   encryptionKey: Uint8Array;
   encryptionVariant: 'legacy' | 'dataKey';
-  metadata: MachineMetadata,
+  metadata: MachineMetadata | null,
   metadataVersion: number,
   daemonState: DaemonState | null,
   daemonStateVersion: number,
@@ -305,6 +305,12 @@ export type Metadata = {
   version?: string,
   name?: string,
   os?: string,
+  /**
+   * Session-scoped profile identity (non-secret).
+   * Used for display/debugging across devices; runtime behavior is still driven by env vars at spawn.
+   * Null indicates "no profile".
+   */
+  profileId?: string | null,
   summary?: {
     text: string,
     updatedAt: number
