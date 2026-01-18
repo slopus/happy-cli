@@ -462,11 +462,19 @@ import { execFileSync } from 'node:child_process'
     try {
       const { runZai } = await import('@/zai/runZai');
 
-      // Parse startedBy argument
+      // Parse startedBy argument and collect unknown args to pass to Claude
       let startedBy: 'daemon' | 'terminal' | undefined = undefined;
+      const unknownArgs: string[] = [];
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--started-by') {
           startedBy = args[++i] as 'daemon' | 'terminal';
+        } else {
+          // Pass unknown arguments through to Claude
+          unknownArgs.push(args[i]);
+          // Check if this arg expects a value (simplified check for common patterns)
+          if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+            unknownArgs.push(args[++i]);
+          }
         }
       }
 
@@ -484,7 +492,7 @@ import { execFileSync } from 'node:child_process'
       }
 
       const { credentials } = await authAndSetupMachineIfNeeded();
-      await runZai({ credentials, startedBy });
+      await runZai({ credentials, startedBy, claudeArgs: unknownArgs });
     } catch (error) {
       console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
       if (process.env.DEBUG) {

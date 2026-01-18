@@ -123,6 +123,7 @@ export function isValidZaiModel(model: string): boolean {
 export async function runZai(opts: {
     credentials: Credentials;
     startedBy?: 'daemon' | 'terminal';
+    claudeArgs?: string[];
 }): Promise<void> {
     logger.debug('[zai] ===== Z.AI MODE STARTING =====');
     logger.debug('[zai] This is Claude with GLM API (z.ai / BigModel.cn)');
@@ -155,7 +156,8 @@ export async function runZai(opts: {
             ANTHROPIC_BASE_URL: config.baseUrl,
             ANTHROPIC_AUTH_TOKEN: config.authToken,
             ANTHROPIC_MODEL: config.model,
-        }
+        },
+        claudeArgs: opts.claudeArgs
     };
 
     logger.debug('[zai] Configuration:', {
@@ -163,6 +165,7 @@ export async function runZai(opts: {
         model: config.model,
         source: config.source,
         hasToken: !!config.authToken,
+        claudeArgs: opts.claudeArgs,
     });
 
     console.log(`Using GLM API (${config.model})`);
