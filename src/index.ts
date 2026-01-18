@@ -325,6 +325,174 @@ import { execFileSync } from 'node:child_process'
       process.exit(1)
     }
     return;
+  } else if (subcommand === 'zai') {
+    // Handle zai subcommands
+    const zaiSubcommand = args[1];
+
+    // Handle "happy zai token set <token>" command
+    if (zaiSubcommand === 'token' && args[2] === 'set' && args[3]) {
+      const token = args[3];
+      try {
+        const { writeZaiConfig, readZaiConfig } = await import('@/zai/runZai');
+
+        // Read existing config or create new one
+        const existingConfig = readZaiConfig();
+        const updatedConfig = {
+          ...existingConfig,
+          authToken: token
+        };
+
+        writeZaiConfig(updatedConfig);
+        console.log('✓ Z.AI API token saved to ~/.zai/config.json');
+        console.log('  You can now run: happy zai');
+        process.exit(0);
+      } catch (error) {
+        console.error('Failed to save token:', error);
+        process.exit(1);
+      }
+    }
+
+    // Handle "happy zai token get" command
+    if (zaiSubcommand === 'token' && args[2] === 'get') {
+      try {
+        const { readZaiConfig } = await import('@/zai/runZai');
+        const config = readZaiConfig();
+
+        if (config.authToken) {
+          console.log(`Token: ${config.authToken.substring(0, 10)}...${config.authToken.substring(Math.max(0, config.authToken.length - 4))}`);
+        } else if (process.env.ZAI_AUTH_TOKEN) {
+          console.log(`Token (from env): ${process.env.ZAI_AUTH_TOKEN.substring(0, 10)}...${process.env.ZAI_AUTH_TOKEN.substring(Math.max(0, process.env.ZAI_AUTH_TOKEN.length - 4))}`);
+        } else {
+          console.log('No token configured. Set one with: happy zai token set <your-token>');
+        }
+        process.exit(0);
+      } catch (error) {
+        console.error('Failed to read token:', error);
+        process.exit(1);
+      }
+    }
+
+    // Handle "happy zai model set <model>" command
+    if (zaiSubcommand === 'model' && args[2] === 'set' && args[3]) {
+      const modelName = args[3];
+      try {
+        const { writeZaiConfig, readZaiConfig, isValidZaiModel, VALID_ZAI_MODELS } = await import('@/zai/runZai');
+
+        if (!isValidZaiModel(modelName)) {
+          console.error(`Invalid model: ${modelName}`);
+          console.error(`Available models: ${VALID_ZAI_MODELS.join(', ')}`);
+          process.exit(1);
+        }
+
+        // Read existing config or create new one
+        const existingConfig = readZaiConfig();
+        const updatedConfig = {
+          ...existingConfig,
+          model: modelName
+        };
+
+        writeZaiConfig(updatedConfig);
+        console.log(`✓ Model set to: ${modelName}`);
+        console.log('  This model will be used in future sessions.');
+        process.exit(0);
+      } catch (error) {
+        console.error('Failed to save model configuration:', error);
+        process.exit(1);
+      }
+    }
+
+    // Handle "happy zai model get" command
+    if (zaiSubcommand === 'model' && args[2] === 'get') {
+      try {
+        const { readZaiConfig, DEFAULT_ZAI_MODEL } = await import('@/zai/runZai');
+        const config = readZaiConfig();
+
+        if (config.model) {
+          console.log(`Current model: ${config.model}`);
+        } else if (process.env.ZAI_MODEL) {
+          console.log(`Current model: ${process.env.ZAI_MODEL} (from ZAI_MODEL env var)`);
+        } else {
+          console.log(`Current model: ${DEFAULT_ZAI_MODEL} (default)`);
+        }
+        process.exit(0);
+      } catch (error) {
+        console.error('Failed to read model configuration:', error);
+        process.exit(1);
+      }
+    }
+
+    // Handle "happy zai base-url set <url>" command
+    if (zaiSubcommand === 'base-url' && args[2] === 'set' && args[3]) {
+      const url = args[3];
+      try {
+        const { writeZaiConfig, readZaiConfig, DEFAULT_ZAI_BASE_URL } = await import('@/zai/runZai');
+
+        // Read existing config or create new one
+        const existingConfig = readZaiConfig();
+        const updatedConfig = {
+          ...existingConfig,
+          baseUrl: url
+        };
+
+        writeZaiConfig(updatedConfig);
+        console.log(`✓ Base URL set to: ${url}`);
+        if (url === DEFAULT_ZAI_BASE_URL) {
+          console.log('  (This is the default GLM API endpoint)');
+        }
+        process.exit(0);
+      } catch (error) {
+        console.error('Failed to save base URL configuration:', error);
+        process.exit(1);
+      }
+    }
+
+    // Handle "happy zai model" (no subcommand) - show help
+    if (zaiSubcommand === 'model' && !args[2]) {
+      console.log('Usage: happy zai model <command>');
+      console.log('');
+      console.log('Commands:');
+      console.log('  set <model>   Set GLM model (e.g., glm-4.7, glm-4-plus)');
+      console.log('  get           Show current model');
+      console.log('');
+      console.log('Available models: glm-4.7, glm-4-plus, glm-4-flash, glm-4-air, glm-4-flashx');
+      process.exit(0);
+    }
+
+    // Handle zai command (main entry point)
+    try {
+      const { runZai } = await import('@/zai/runZai');
+
+      // Parse startedBy argument
+      let startedBy: 'daemon' | 'terminal' | undefined = undefined;
+      for (let i = 1; i < args.length; i++) {
+        if (args[i] === '--started-by') {
+          startedBy = args[++i] as 'daemon' | 'terminal';
+        }
+      }
+
+      // Auto-start daemon for zai (same as claude/gemini)
+      logger.debug('Ensuring Happy background service is running & matches our version...');
+      if (!(await isDaemonRunningCurrentlyInstalledHappyVersion())) {
+        logger.debug('Starting Happy background service...');
+        const daemonProcess = spawnHappyCLI(['daemon', 'start-sync'], {
+          detached: true,
+          stdio: 'ignore',
+          env: process.env
+        });
+        daemonProcess.unref();
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+
+      const { credentials } = await authAndSetupMachineIfNeeded();
+      await runZai({ credentials, startedBy });
+    } catch (error) {
+      console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
+      if (process.env.DEBUG) {
+        console.error(error)
+      }
+      process.exit(1)
+    }
+    return;
   } else if (subcommand === 'logout') {
     // Keep for backward compatibility - redirect to auth logout
     console.log(chalk.yellow('Note: "happy logout" is deprecated. Use "happy auth logout" instead.\n'));
@@ -538,6 +706,7 @@ ${chalk.bold('Usage:')}
   happy auth              Manage authentication
   happy codex             Start Codex mode
   happy gemini            Start Gemini mode (ACP)
+  happy zai               Start Z.AI/GLM mode (BigModel.cn)
   happy connect           Connect AI vendor API keys
   happy notify            Send push notification
   happy daemon            Manage background service that allows
