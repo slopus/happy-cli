@@ -405,9 +405,11 @@ export async function runOpenCode(opts: {
    */
   function setupOpenCodeMessageHandler(backend: AgentBackend): void {
     backend.onMessage((msg: AgentMessage) => {
+      logger.debug(`[opencode] Received message: ${msg.type}`);
       switch (msg.type) {
         case 'model-output':
           if (msg.textDelta) {
+            logger.debug(`[opencode] model-output delta: "${msg.textDelta.substring(0, 30)}..." (accumulated: ${accumulatedResponse.length} chars)`);
             if (!isResponseInProgress) {
               messageBuffer.removeLastMessage('system');
               messageBuffer.addMessage(msg.textDelta, 'assistant');
@@ -453,6 +455,8 @@ export async function runOpenCode(opts: {
 
               // Re-add options XML to message for mobile app parsing
               const finalMessageText = messageText + formatOptionsXml(options);
+
+              logger.debug(`[opencode] Sending message: ${finalMessageText.substring(0, 50)}... (options: ${options.length})`);
 
               const messagePayload: CodexMessagePayload = {
                 type: 'message',
