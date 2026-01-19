@@ -497,6 +497,18 @@ function runClaudeCli(cliPath) {
             stdio: 'inherit',
             env: process.env
         });
+
+        // Forward signals to child process so it gets killed when parent is killed
+        // This prevents orphaned Claude processes when switching between local/remote modes
+        const forwardSignal = (signal) => {
+            if (child.pid && !child.killed) {
+                child.kill(signal);
+            }
+        };
+        process.on('SIGTERM', () => forwardSignal('SIGTERM'));
+        process.on('SIGINT', () => forwardSignal('SIGINT'));
+        process.on('SIGHUP', () => forwardSignal('SIGHUP'));
+
         child.on('exit', (code) => {
             process.exit(code || 0);
         });
