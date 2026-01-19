@@ -14,6 +14,27 @@ import { join, basename } from 'node:path'
 // circular dependency: logger.ts ↔ persistence.ts
 
 /**
+ * Serialize a value for logging, with special handling for Error objects.
+ * Error objects don't serialize well with JSON.stringify() because their
+ * properties (message, stack, name) are not enumerable.
+ */
+function serializeForLog(value: unknown): string {
+  if (typeof value === 'string') {
+    return value
+  }
+  if (value instanceof Error) {
+    return JSON.stringify({
+      name: value.name,
+      message: value.message,
+      stack: value.stack,
+      // Include any additional enumerable properties (e.g., cause, code)
+      ...value
+    })
+  }
+  return JSON.stringify(value)
+}
+
+/**
  * Consistent date/time formatting functions
  */
 function createTimestampForFilename(date: Date = new Date()): string {
@@ -188,9 +209,7 @@ class Logger {
         body: JSON.stringify({
           timestamp: new Date().toISOString(),
           level,
-          message: `${message} ${args.map(a => 
-            typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)
-          ).join(' ')}`,
+          message: `${message} ${args.map(serializeForLog).join(' ')}`,
           source: 'cli',
           platform: process.platform
         })
@@ -201,9 +220,7 @@ class Logger {
   }
 
   private logToFile(prefix: string, message: string, ...args: unknown[]): void {
-    const logLine = `${prefix} ${message} ${args.map(arg => 
-      typeof arg === 'string' ? arg : JSON.stringify(arg)
-    ).join(' ')}\n`
+    const logLine = `${prefix} ${message} ${args.map(serializeForLog).join(' ')}\n`
     
     // Send to remote server if configured
     if (this.dangerouslyUnencryptedServerLoggingUrl) {
