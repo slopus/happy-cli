@@ -6,7 +6,7 @@ import React from "react";
 import { claudeRemote } from "./claudeRemote";
 import { PermissionHandler } from "./utils/permissionHandler";
 import { Future } from "@/utils/future";
-import { SDKAssistantMessage, SDKMessage, SDKUserMessage } from "./sdk";
+import { AbortError, SDKAssistantMessage, SDKMessage, SDKUserMessage } from "./sdk";
 import { formatClaudeMessageForInk } from "@/ui/messageFormatterInk";
 import { logger } from "@/ui/logger";
 import { SDKToLogConverter } from "./utils/sdkToLogConverter";
@@ -21,6 +21,50 @@ interface PermissionsField {
     result: 'approved' | 'denied';
     mode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
     allowedTools?: string[];
+}
+
+type LaunchErrorInfo = {
+    asString: string;
+    name?: string;
+    message?: string;
+    code?: string;
+    stack?: string;
+};
+
+function getLaunchErrorInfo(e: unknown): LaunchErrorInfo {
+    let asString = '[unprintable error]';
+    try {
+        asString = typeof e === 'string' ? e : String(e);
+    } catch {
+        // Ignore
+    }
+
+    if (!e || typeof e !== 'object') {
+        return { asString };
+    }
+
+    const err = e as { name?: unknown; message?: unknown; code?: unknown; stack?: unknown };
+
+    const name = typeof err.name === 'string' ? err.name : undefined;
+    const message = typeof err.message === 'string' ? err.message : undefined;
+    const code = typeof err.code === 'string' || typeof err.code === 'number' ? String(err.code) : undefined;
+    const stack = typeof err.stack === 'string' ? err.stack : undefined;
+
+    return { asString, name, message, code, stack };
+}
+
+function isAbortError(e: unknown): boolean {
+    if (e instanceof AbortError) return true;
+
+    if (!e || typeof e !== 'object') {
+        return false;
+    }
+
+    const err = e as { name?: unknown; code?: unknown };
+    if (typeof err.name === 'string' && err.name === 'AbortError') return true;
+    if (typeof err.code === 'string' && err.code === 'ABORT_ERR') return true;
+
+    return false;
 }
 
 export async function claudeRemoteLauncher(session: Session): Promise<'switch' | 'exit'> {
@@ -301,6 +345,15 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
         // actually changes (e.g., new session started or /clear command used).
         // See: https://github.com/anthropics/happy-cli/issues/143
         let previousSessionId: string | null = null;
+
+        // Track consecutive crashes to prevent infinite restart loops
+        // Resets to 0 on successful message exchange
+        let consecutiveCrashes = 0;
+        const MAX_CONSECUTIVE_CRASHES = 3;
+
+        // Track last message sent to Claude for crash recovery resend
+        let lastSentMessage: { message: string; mode: EnhancedMode } | null = null;
+
         while (!exitReason) {
             logger.debug('[remote]: launch');
             messageBuffer.addMessage('═'.repeat(40), 'status');
@@ -327,6 +380,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                 const remoteResult = await claudeRemote({
                     sessionId: session.sessionId,
                     path: session.path,
+                    sessionPath: session.sessionInfo?.path,
                     allowedTools: session.allowedTools ?? [],
                     mcpServers: session.mcpServers,
                     hookSettingsPath: session.hookSettingsPath,
@@ -336,10 +390,21 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                         return permissionHandler.isAborted(toolCallId);
                     },
                     nextMessage: async () => {
+                        // On crash recovery, resend the last message that was being processed (once only)
+                        if (consecutiveCrashes > 0 && lastSentMessage) {
+                            logger.debug('[remote]: resending last message after crash recovery (one-time)');
+                            const resend = lastSentMessage;
+                            // Clear immediately - only resend once, not on every subsequent crash
+                            lastSentMessage = null;
+                            permissionHandler.handleModeChange(resend.mode.permissionMode);
+                            return resend;
+                        }
+
                         if (pending) {
                             let p = pending;
                             pending = null;
                             permissionHandler.handleModeChange(p.mode.permissionMode);
+                            lastSentMessage = p;
                             return p;
                         }
 
@@ -355,19 +420,21 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                             modeHash = msg.hash;
                             mode = msg.mode;
                             permissionHandler.handleModeChange(mode.permissionMode);
-                            return {
+                            const result = {
                                 message: msg.message,
                                 mode: msg.mode
-                            }
+                            };
+                            lastSentMessage = result;
+                            return result;
                         }
 
                         // Exit
                         return null;
                     },
-                    onSessionFound: (sessionId) => {
+                    onSessionFound: (sessionId, sessionPath) => {
                         // Update converter's session ID when new session is found
                         sdkToLogConverter.updateSessionId(sessionId);
-                        session.onSessionFound(sessionId);
+                        session.onSessionFound(sessionId, sessionPath);
                     },
                     onThinkingChange: session.onThinkingChange,
                     claudeEnvVars: session.claudeEnvVars,
@@ -396,14 +463,58 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                 
                 // Consume one-time Claude flags after spawn
                 session.consumeOneTimeFlags();
-                
+
+                // Reset crash counter and clear last message on successful completion
+                consecutiveCrashes = 0;
+                lastSentMessage = null;
+
                 if (!exitReason && abortController.signal.aborted) {
                     session.client.sendSessionEvent({ type: 'message', message: 'Aborted by user' });
                 }
             } catch (e) {
-                logger.debug('[remote]: launch error', e);
+                const abortError = isAbortError(e);
+                const errorInfo = getLaunchErrorInfo(e);
+                logger.debug('[remote]: launch error', {
+                    ...errorInfo,
+                    abortError,
+                    consecutiveCrashes,
+                });
+
                 if (!exitReason) {
-                    session.client.sendSessionEvent({ type: 'message', message: 'Process exited unexpectedly' });
+                    if (abortError) {
+                        if (controller.signal.aborted) {
+                            session.client.sendSessionEvent({ type: 'message', message: 'Aborted by user' });
+                        }
+                        continue;
+                    }
+
+                    consecutiveCrashes++;
+
+                    // Check if we've hit the crash limit
+                    if (consecutiveCrashes >= MAX_CONSECUTIVE_CRASHES) {
+                        logger.debug(`[remote]: Max consecutive crashes (${MAX_CONSECUTIVE_CRASHES}) reached, stopping`);
+                        session.client.sendSessionEvent({
+                            type: 'message',
+                            message: `Session stopped after ${MAX_CONSECUTIVE_CRASHES} consecutive crashes. Please try again.`
+                        });
+                        break; // Exit the while loop instead of continuing
+                    }
+
+                    // Provide more helpful message based on error
+                    const isProcessExit = errorInfo.message?.includes('exited with code');
+                    const willResend = lastSentMessage !== null;
+                    const resendNote = willResend ? ' Your message will be resent.' : '';
+                    if (isProcessExit) {
+                        session.client.sendSessionEvent({
+                            type: 'message',
+                            message: `Claude process crashed, restarting... (attempt ${consecutiveCrashes}/${MAX_CONSECUTIVE_CRASHES})${resendNote}`
+                        });
+                    } else {
+                        session.client.sendSessionEvent({
+                            type: 'message',
+                            message: `Process exited unexpectedly, restarting... (attempt ${consecutiveCrashes}/${MAX_CONSECUTIVE_CRASHES})${resendNote}`
+                        });
+                    }
                     continue;
                 }
             } finally {
