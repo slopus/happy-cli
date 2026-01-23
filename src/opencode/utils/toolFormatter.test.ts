@@ -64,5 +64,30 @@ describe('toolFormatter', () => {
             expect(formattedGrep).toContain('```');
             expect(formattedGrep).toContain('some complex content');
         });
+
+        it('should auto-detect array as list', () => {
+            const result = ['a', 'b'];
+            const formatted = formatToolResult('unknown', result);
+            expect(formatted).toContain('- a');
+        });
+
+        it('should auto-detect content object as code block', () => {
+            const result = { content: 'code' };
+            const formatted = formatToolResult('unknown', result);
+            expect(formatted).toContain('```');
+            expect(formatted).toContain('code');
+        });
+        
+        it('should handle MCP content array in auto-detection', () => {
+            const result = { 
+                content: [
+                    { type: 'text', text: 'part1' },
+                    { type: 'text', text: 'part2' }
+                ]
+            };
+            const formatted = formatToolResult('unknown', result);
+            expect(formatted).toContain('part1');
+            expect(formatted).toContain('part2');
+        });
     });
 });

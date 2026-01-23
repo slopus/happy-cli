@@ -70,42 +70,19 @@ function formatListArray(items: any[]): string {
 }
 
 function formatRead(result: any): string {
-    let content = '';
-    if (typeof result === 'string') {
-        content = result;
-    } else if (typeof result === 'object' && result !== null) {
-        // Handle result.content.text (common MCP pattern)
-        if (result.content) {
-            if (typeof result.content === 'string') {
-                content = result.content;
-            } else if (typeof result.content === 'object' && result.content !== null) {
-                if (result.content.text && typeof result.content.text === 'string') {
-                    content = result.content.text;
-                } else if (result.content.value && typeof result.content.value === 'string') {
-                    content = result.content.value;
-                }
-            }
-        }
-        // Handle direct result.text
-        else if (result.text && typeof result.text === 'string') {
-            content = result.text;
-        }
-    } else {
-        return formatDefault(result);
-    }
+    // Try to extract content using shared helper
+    const content = extractContent(result);
     
-    if (!content && typeof result === 'object') {
-        // Failed to extract string, but it is an object.
-        // If it's the exact structure user reported (locations + content.text)
-        // Check if content.text is present
-        if (result.content && result.content.text) {
-             content = result.content.text;
-        }
+    if (content !== null) {
+        return `\`\`\`\n${truncateString(content, 2000)}\n\`\`\``;
     }
 
-    if (!content) return formatDefault(result); // Failed to extract string
-
-    return `\`\`\`\n${truncateString(content, 2000)}\n\`\`\``;
+    // If result.content is missing but result is object (maybe complex structure)
+    // fallback is handled by return formatDefault(result) below.
+    // But formatDefault calls canFormatRead -> extractContent.
+    // So if extractContent failed here, it will fail there too.
+    
+    return formatDefault(result);
 }
 
 function formatGrep(result: any): string {
@@ -113,15 +90,10 @@ function formatGrep(result: any): string {
     if (typeof result === 'object' && result !== null && Array.isArray(result.locations)) {
         // If locations is empty, return "No matches found."
         if (result.locations.length === 0) {
-             // Sometimes locations=[] means no matches, but content might contain info?
-             // User example: locations=[], content={text: "..."}.
-             // If content is present, maybe it's actually a 'read' result mislabeled or a search result with context?
-             // If content is present, verify if it's "text".
-             if (result.content && result.content.text) {
-                 // It's likely file content. Treat as read?
-                 // Or format as "No matches in: \n ```\n...\n```"
-                 // Or just return the content.
-                 return `\`\`\`\n${truncateString(result.content.text, 2000)}\n\`\`\``;
+             // Check if content is present (user edge case)
+             const content = extractContent(result);
+             if (content !== null) {
+                 return `\`\`\`\n${truncateString(content, 2000)}\n\`\`\``;
              }
              return 'No matches found.';
         }
@@ -172,11 +144,66 @@ function formatSuccess(result: any, toolName: string): string {
 
 function formatDefault(result: any): string {
     if (typeof result === 'string') return result;
+    
+    // Auto-detection logic
+    if (Array.isArray(result)) {
+        return formatListArray(result);
+    }
+    
+    if (typeof result === 'object' && result !== null) {
+        // Check for content/text (like read result)
+        const content = extractContent(result);
+        if (content !== null) {
+            return `\`\`\`\n${truncateString(content, 2000)}\n\`\`\``;
+        }
+        
+        // Check for files/paths (like ls result)
+        if (result.files || result.paths) {
+            return formatList(result);
+        }
+        
+        // Check for locations (like grep)
+        if (result.locations) {
+            return formatGrep(result);
+        }
+    }
+
     try {
         return `\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``;
     } catch {
         return String(result);
     }
+}
+
+// Shared helper to extract content string from various structures
+function extractContent(result: any): string | null {
+    if (typeof result === 'string') return result;
+    
+    if (typeof result === 'object' && result !== null) {
+        // Direct text property
+        if (result.text && typeof result.text === 'string') return result.text;
+        
+        // Content property
+        if (result.content) {
+            // String content
+            if (typeof result.content === 'string') return result.content;
+            
+            // Array content (MCP)
+            if (Array.isArray(result.content)) {
+                const parts = result.content
+                    .filter((item: any) => item.type === 'text' && typeof item.text === 'string')
+                    .map((item: any) => item.text);
+                if (parts.length > 0) return parts.join('\n');
+            }
+            
+            // Object content
+            if (typeof result.content === 'object') {
+                if (result.content.text && typeof result.content.text === 'string') return result.content.text;
+                if (result.content.value && typeof result.content.value === 'string') return result.content.value;
+            }
+        }
+    }
+    return null;
 }
 
 function truncateString(str: string, maxLength: number): string {
