@@ -32,6 +32,7 @@ import { startCaffeinate, stopCaffeinate } from '@/utils/caffeinate';
 
 import { createOpenCodeBackend } from '@/agent/acp/opencode';
 import type { AgentBackend, AgentMessage } from '@/agent/AgentBackend';
+import { formatToolResult } from './utils/toolFormatter';
 import { createSessionTracker } from './hooks/sessionTracker';
 import { OpenCodeDisplay } from '@/ui/ink/OpenCodeDisplay';
 import { OpenCodePermissionHandler } from '@/opencode/utils/permissionHandler';
@@ -518,10 +519,12 @@ export async function runOpenCode(opts: {
             messageBuffer.addMessage(`Result: ${truncatedResult}`, 'result');
           }
 
+          const formattedOutput = formatToolResult(msg.toolName || 'unknown', msg.result);
+
           session.sendCodexMessage({
             type: 'tool-call-result',
             callId: msg.callId,
-            output: msg.result,
+            output: formattedOutput,
             id: randomUUID(),
           });
           break;
