@@ -44,5 +44,25 @@ describe('toolFormatter', () => {
             expect(formatted).toContain('json');
             expect(formatted).toContain('"foo": "bar"');
         });
+
+        it('should handle complex nested content (user example)', () => {
+            const result = {
+                locations: [],
+                content: {
+                    text: 'some complex content',
+                    type: 'text'
+                }
+            };
+            
+            // Test 'read' handling
+            const formattedRead = formatToolResult('read', result);
+            expect(formattedRead).toContain('```');
+            expect(formattedRead).toContain('some complex content');
+
+            // Test 'grep' handling (if locations empty but content present)
+            const formattedGrep = formatToolResult('grep', result);
+            expect(formattedGrep).toContain('```');
+            expect(formattedGrep).toContain('some complex content');
+        });
     });
 });

@@ -73,17 +73,62 @@ function formatRead(result: any): string {
     let content = '';
     if (typeof result === 'string') {
         content = result;
-    } else if (typeof result === 'object' && result !== null && result.content) {
-        content = result.content;
+    } else if (typeof result === 'object' && result !== null) {
+        // Handle result.content.text (common MCP pattern)
+        if (result.content) {
+            if (typeof result.content === 'string') {
+                content = result.content;
+            } else if (typeof result.content === 'object' && result.content !== null) {
+                if (result.content.text && typeof result.content.text === 'string') {
+                    content = result.content.text;
+                } else if (result.content.value && typeof result.content.value === 'string') {
+                    content = result.content.value;
+                }
+            }
+        }
+        // Handle direct result.text
+        else if (result.text && typeof result.text === 'string') {
+            content = result.text;
+        }
     } else {
         return formatDefault(result);
     }
     
-    // Truncate content
+    if (!content && typeof result === 'object') {
+        // Failed to extract string, but it is an object.
+        // If it's the exact structure user reported (locations + content.text)
+        // Check if content.text is present
+        if (result.content && result.content.text) {
+             content = result.content.text;
+        }
+    }
+
+    if (!content) return formatDefault(result); // Failed to extract string
+
     return `\`\`\`\n${truncateString(content, 2000)}\n\`\`\``;
 }
 
 function formatGrep(result: any): string {
+    // Check for locations array
+    if (typeof result === 'object' && result !== null && Array.isArray(result.locations)) {
+        // If locations is empty, return "No matches found."
+        if (result.locations.length === 0) {
+             // Sometimes locations=[] means no matches, but content might contain info?
+             // User example: locations=[], content={text: "..."}.
+             // If content is present, maybe it's actually a 'read' result mislabeled or a search result with context?
+             // If content is present, verify if it's "text".
+             if (result.content && result.content.text) {
+                 // It's likely file content. Treat as read?
+                 // Or format as "No matches in: \n ```\n...\n```"
+                 // Or just return the content.
+                 return `\`\`\`\n${truncateString(result.content.text, 2000)}\n\`\`\``;
+             }
+             return 'No matches found.';
+        }
+        // If locations has items, format them using formatGrep recursively
+        return formatGrep(result.locations); 
+    }
+
     // Grep output might be array of matches or string
     if (typeof result === 'string') {
         return `\`\`\`\n${truncateString(result, 2000)}\n\`\`\``;
