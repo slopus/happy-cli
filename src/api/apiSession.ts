@@ -225,8 +225,8 @@ export class ApiSessionClient extends EventEmitter {
         let content = {
             role: 'agent',
             content: {
-                type: 'output',
-                data: body  // This wraps the entire Codex/OpenCode message
+                type: 'codex',
+                data: body  // This wraps the entire Claude message
             },
             meta: {
                 sentFrom: 'cli'
@@ -257,11 +257,8 @@ export class ApiSessionClient extends EventEmitter {
         let content = {
             role: 'agent',
             content: {
-                type: 'output',
-                data: {
-                    provider: agentType,
-                    ...body
-                }
+                type: agentType,
+                data: body
             },
             meta: {
                 sentFrom: 'cli'
