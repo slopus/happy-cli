@@ -347,6 +347,26 @@ describe('MessageQueue2', () => {
         expect(result?.message).toBe('immediate');
     });
 
+    it('should resolve pending waiters when reset is called', async () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+
+        let resolved = false;
+        const waitPromise = queue.waitForMessagesAndGetAsString().then(result => {
+            resolved = true;
+            return result;
+        });
+
+        expect(resolved).toBe(false);
+
+        queue.reset();
+
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        expect(resolved).toBe(true);
+        const result = await waitPromise;
+        expect(result).toBeNull();
+    });
+
     it('should batch messages pushed with pushImmediate normally', async () => {
         const queue = new MessageQueue2<{ type: string }>((mode) => mode.type);
         

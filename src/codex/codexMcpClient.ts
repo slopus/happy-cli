@@ -30,6 +30,9 @@ function getCodexMcpCommand(): string | null {
         const versionStr = match[1];
         const [major, minor, patch] = versionStr.split(/[-.]/).map(Number);
 
+        // Dev builds may report 0.0.0 but still require mcp-server.
+        if (major === 0 && minor === 0 && patch === 0) return 'mcp-server';
+
         // Version >= 0.43.0-alpha.5 has mcp-server
         if (major > 0 || minor > 43) return 'mcp-server';
         if (minor === 43 && patch === 0) {
@@ -146,7 +149,7 @@ export class CodexMcpClient {
                 if (!this.permissionHandler) {
                     logger.debug('[CodexMCP] No permission handler set, denying by default');
                     return {
-                        decision: 'denied' as const,
+                        action: 'decline' as const,
                     };
                 }
 
@@ -162,14 +165,20 @@ export class CodexMcpClient {
                     );
 
                     logger.debug('[CodexMCP] Permission result:', result);
-                    return {
-                        decision: result.decision
+
+                    if (result.decision === 'approved' || result.decision === 'approved_for_session') {
+                        return { action: 'accept' as const, content: {} };
                     }
+
+                    if (result.decision === 'abort') {
+                        return { action: 'cancel' as const };
+                    }
+
+                    return { action: 'decline' as const };
                 } catch (error) {
                     logger.debug('[CodexMCP] Error handling permission request:', error);
                     return {
-                        decision: 'denied' as const,
-                        reason: error instanceof Error ? error.message : 'Permission request failed'
+                        action: 'decline' as const,
                     };
                 }
             }
