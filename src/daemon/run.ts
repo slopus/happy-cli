@@ -388,7 +388,13 @@ export async function startDaemon(): Promise<void> {
           const cliPath = join(projectPath(), 'dist', 'index.mjs');
           // Determine agent command - support claude, codex, and gemini
           const agent = options.agent === 'gemini' ? 'gemini' : (options.agent === 'codex' ? 'codex' : 'claude');
-          const fullCommand = `node --no-warnings --no-deprecation ${cliPath} ${agent} --happy-starting-mode remote --started-by daemon`;
+          let fullCommand = `node --no-warnings --no-deprecation ${cliPath} ${agent} --happy-starting-mode remote --started-by daemon`;
+
+          // Add --resume flag if resumeClaudeSessionId is provided
+          if (options.resumeClaudeSessionId) {
+            fullCommand += ` --resume ${options.resumeClaudeSessionId}`;
+            logger.debug(`[DAEMON RUN] Adding --resume ${options.resumeClaudeSessionId} to tmux command`);
+          }
 
           // Spawn in tmux with environment variables
           // IMPORTANT: Pass complete environment (process.env + extraEnv) because:
@@ -495,8 +501,12 @@ export async function startDaemon(): Promise<void> {
             '--started-by', 'daemon'
           ];
 
-          // TODO: In future, sessionId could be used with --resume to continue existing sessions
-          // For now, we ignore it - each spawn creates a new session
+          // Add --resume flag if resumeClaudeSessionId is provided
+          if (options.resumeClaudeSessionId) {
+            args.push('--resume', options.resumeClaudeSessionId);
+            logger.debug(`[DAEMON RUN] Adding --resume ${options.resumeClaudeSessionId} to args`);
+          }
+
           const happyProcess = spawnHappyCLI(args, {
             cwd: directory,
             detached: true,  // Sessions stay alive when daemon stops
