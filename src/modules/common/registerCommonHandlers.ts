@@ -122,6 +122,8 @@ export interface SpawnSessionOptions {
     approvedNewDirectoryCreation?: boolean;
     agent?: 'claude' | 'codex' | 'gemini';
     token?: string;
+    /** Model alias (e.g., 'sonnet', 'opus') or full name. Takes precedence over environmentVariables.ANTHROPIC_MODEL */
+    model?: string;
     environmentVariables?: {
         // Anthropic Claude API configuration
         ANTHROPIC_BASE_URL?: string;        // Custom API endpoint (overrides default)

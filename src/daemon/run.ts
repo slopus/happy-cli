@@ -219,7 +219,7 @@ export async function startDaemon(): Promise<void> {
     const spawnSession = async (options: SpawnSessionOptions): Promise<SpawnSessionResult> => {
       logger.debugLargeJson('[DAEMON RUN] Spawning session', options);
 
-      const { directory, sessionId, machineId, approvedNewDirectoryCreation = true } = options;
+      const { directory, sessionId, machineId, approvedNewDirectoryCreation = true, model } = options;
       let directoryCreated = false;
 
       try {
@@ -325,6 +325,13 @@ export async function startDaemon(): Promise<void> {
 
         // Final merge: Profile vars first, then auth (auth takes precedence to protect authentication)
         let extraEnv = { ...profileEnv, ...authEnv };
+
+        // If model is provided via spawn options, set ANTHROPIC_MODEL (takes precedence over profile)
+        if (model) {
+          extraEnv.ANTHROPIC_MODEL = model;
+          logger.debug(`[DAEMON RUN] Model set from spawn options: ${model}`);
+        }
+
         logger.debug(`[DAEMON RUN] Final environment variable keys (before expansion) (${Object.keys(extraEnv).length}): ${Object.keys(extraEnv).join(', ')}`);
 
         // Expand ${VAR} references from daemon's process.env
@@ -388,7 +395,9 @@ export async function startDaemon(): Promise<void> {
           const cliPath = join(projectPath(), 'dist', 'index.mjs');
           // Determine agent command - support claude, codex, and gemini
           const agent = options.agent === 'gemini' ? 'gemini' : (options.agent === 'codex' ? 'codex' : 'claude');
-          const fullCommand = `node --no-warnings --no-deprecation ${cliPath} ${agent} --happy-starting-mode remote --started-by daemon`;
+          // Add --model flag if specified (for Claude agent)
+          const modelArg = model && (options.agent === 'claude' || options.agent === undefined) ? ` --model ${model}` : '';
+          const fullCommand = `node --no-warnings --no-deprecation ${cliPath} ${agent} --happy-starting-mode remote --started-by daemon${modelArg}`;
 
           // Spawn in tmux with environment variables
           // IMPORTANT: Pass complete environment (process.env + extraEnv) because:
@@ -494,6 +503,12 @@ export async function startDaemon(): Promise<void> {
             '--happy-starting-mode', 'remote',
             '--started-by', 'daemon'
           ];
+
+          // Add --model flag if model was specified (for Claude agent)
+          if (model && (options.agent === 'claude' || options.agent === undefined)) {
+            args.push('--model', model);
+            logger.debug(`[DAEMON RUN] Added --model ${model} to CLI args`);
+          }
 
           // TODO: In future, sessionId could be used with --resume to continue existing sessions
           // For now, we ignore it - each spawn creates a new session
