@@ -1,7 +1,8 @@
 import { InvalidateSync } from "@/utils/sync";
 import { RawJSONLines, RawJSONLinesSchema } from "../types";
 import { join } from "node:path";
-import { readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { createInterface } from "node:readline";
 import { logger } from "@/ui/logger";
 import { startFileWatcher } from "@/modules/watcher/startFileWatcher";
 import { getProjectPath } from "./path";
@@ -164,45 +165,66 @@ function messageKey(message: RawJSONLines): string {
 }
 
 /**
- * Read and parse session log file
- * Returns only valid conversation messages, silently skipping internal events
+ * Maximum number of messages to keep from a session file.
+ * For very long sessions (100k+ lines), keeping all parsed messages
+ * in memory causes OOM crashes. We only need recent messages for
+ * the mobile sync use case.
+ */
+const MAX_SESSION_MESSAGES = 500;
+
+/**
+ * Read and parse session log file using streaming to avoid OOM.
+ *
+ * Long-running Claude Code sessions can produce JSONL files of 500MB+
+ * (especially after context compaction). Loading these entirely into
+ * memory with readFile() causes V8 heap exhaustion (see #526).
+ *
+ * This implementation:
+ * 1. Stream-parses line-by-line via createReadStream + readline
+ * 2. Caps retained messages at MAX_SESSION_MESSAGES (most recent)
+ * 3. Never holds more than one line in memory at a time
  */
 async function readSessionLog(projectDir: string, sessionId: string): Promise<RawJSONLines[]> {
     const expectedSessionFile = join(projectDir, `${sessionId}.jsonl`);
     logger.debug(`[SESSION_SCANNER] Reading session file: ${expectedSessionFile}`);
-    let file: string;
+    let messages: RawJSONLines[] = [];
     try {
-        file = await readFile(expectedSessionFile, 'utf-8');
+        const rl = createInterface({
+            input: createReadStream(expectedSessionFile, { encoding: 'utf-8' }),
+            crlfDelay: Infinity,
+        });
+        for await (const l of rl) {
+            try {
+                if (l.trim() === '') {
+                    continue;
+                }
+                let message = JSON.parse(l);
+
+                // Silently skip known internal Claude Code events
+                // These are state/tracking events, not conversation messages
+                if (message.type && INTERNAL_CLAUDE_EVENT_TYPES.has(message.type)) {
+                    continue;
+                }
+
+                let parsed = RawJSONLinesSchema.safeParse(message);
+                if (!parsed.success) {
+                    // Unknown message types are silently skipped
+                    // They will be tracked by processedMessageKeys to avoid reprocessing
+                    continue;
+                }
+                messages.push(parsed.data);
+            } catch (e) {
+                logger.debug(`[SESSION_SCANNER] Error processing message: ${e}`);
+                continue;
+            }
+        }
     } catch (error) {
         logger.debug(`[SESSION_SCANNER] Session file not found: ${expectedSessionFile}`);
         return [];
     }
-    let lines = file.split('\n');
-    let messages: RawJSONLines[] = [];
-    for (let l of lines) {
-        try {
-            if (l.trim() === '') {
-                continue;
-            }
-            let message = JSON.parse(l);
-            
-            // Silently skip known internal Claude Code events
-            // These are state/tracking events, not conversation messages
-            if (message.type && INTERNAL_CLAUDE_EVENT_TYPES.has(message.type)) {
-                continue;
-            }
-            
-            let parsed = RawJSONLinesSchema.safeParse(message);
-            if (!parsed.success) {
-                // Unknown message types are silently skipped
-                // They will be tracked by processedMessageKeys to avoid reprocessing
-                continue;
-            }
-            messages.push(parsed.data);
-        } catch (e) {
-            logger.debug(`[SESSION_SCANNER] Error processing message: ${e}`);
-            continue;
-        }
+    // Keep only the most recent messages to bound memory usage
+    if (messages.length > MAX_SESSION_MESSAGES) {
+        messages = messages.slice(-MAX_SESSION_MESSAGES);
     }
     return messages;
 }
