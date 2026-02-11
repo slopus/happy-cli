@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Box, Text, useStdout, useInput } from 'ink'
 import { MessageBuffer, type BufferedMessage } from './messageBuffer'
+import { getTheme } from '@/ui/theme'
 
 interface CodexDisplayProps {
     messageBuffer: MessageBuffer
@@ -76,17 +77,7 @@ export const CodexDisplay: React.FC<CodexDisplayProps> = ({ messageBuffer, logPa
         }
     }, [confirmationMode, actionInProgress, onExit, setConfirmationWithTimeout, resetConfirmation]))
 
-    const getMessageColor = (type: BufferedMessage['type']): string => {
-        switch (type) {
-            case 'user': return 'magenta'
-            case 'assistant': return 'cyan'
-            case 'system': return 'blue'
-            case 'tool': return 'yellow'
-            case 'result': return 'green'
-            case 'status': return 'gray'
-            default: return 'white'
-        }
-    }
+    const theme = getTheme()
 
     const formatMessage = (msg: BufferedMessage): string => {
         const lines = msg.content.split('\n')
@@ -109,23 +100,23 @@ export const CodexDisplay: React.FC<CodexDisplayProps> = ({ messageBuffer, logPa
                 width={terminalWidth}
                 height={terminalHeight - 4}
                 borderStyle="round"
-                borderColor="gray"
+                borderColor={theme.colors.border}
                 paddingX={1}
                 overflow="hidden"
             >
                 <Box flexDirection="column" marginBottom={1}>
-                    <Text color="gray" bold>🤖 Codex Agent Messages</Text>
-                    <Text color="gray" dimColor>{'─'.repeat(Math.min(terminalWidth - 4, 60))}</Text>
+                    <Text color={theme.colors.header} bold>🤖 Codex Agent Messages</Text>
+                    <Text color={theme.colors.separator} dimColor={theme.dimMessages}>{'─'.repeat(Math.min(terminalWidth - 4, 60))}</Text>
                 </Box>
-                
+
                 <Box flexDirection="column" height={terminalHeight - 10} overflow="hidden">
                     {messages.length === 0 ? (
-                        <Text color="gray" dimColor>Waiting for messages...</Text>
+                        <Text color={theme.colors.muted} dimColor={theme.dimMessages}>Waiting for messages...</Text>
                     ) : (
                         // Show only the last messages that fit in the available space
                         messages.slice(-Math.max(1, terminalHeight - 10)).map((msg) => (
                             <Box key={msg.id} flexDirection="column" marginBottom={1}>
-                                <Text color={getMessageColor(msg.type)} dimColor>
+                                <Text color={theme.colors.message(msg.type)} dimColor={theme.dimMessages}>
                                     {formatMessage(msg)}
                                 </Text>
                             </Box>
@@ -139,8 +130,8 @@ export const CodexDisplay: React.FC<CodexDisplayProps> = ({ messageBuffer, logPa
                 width={terminalWidth}
                 borderStyle="round"
                 borderColor={
-                    actionInProgress ? "gray" :
-                    confirmationMode ? "red" : 
+                    actionInProgress ? theme.colors.muted :
+                    confirmationMode ? "red" :
                     "green"
                 }
                 paddingX={2}
@@ -150,7 +141,7 @@ export const CodexDisplay: React.FC<CodexDisplayProps> = ({ messageBuffer, logPa
             >
                 <Box flexDirection="column" alignItems="center">
                     {actionInProgress ? (
-                        <Text color="gray" bold>
+                        <Text color={theme.colors.muted} bold>
                             Exiting agent...
                         </Text>
                     ) : confirmationMode ? (
@@ -165,7 +156,7 @@ export const CodexDisplay: React.FC<CodexDisplayProps> = ({ messageBuffer, logPa
                         </>
                     )}
                     {process.env.DEBUG && logPath && (
-                        <Text color="gray" dimColor>
+                        <Text color={theme.colors.muted} dimColor={theme.dimMessages}>
                             Debug logs: {logPath}
                         </Text>
                     )}

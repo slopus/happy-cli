@@ -13,6 +13,7 @@ import { configuration } from '@/configuration';
 import packageJson from '../../package.json';
 import os from 'node:os';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
+import { initTheme } from '@/ui/theme';
 import { hashObject } from '@/utils/deterministicJson';
 import { projectPath } from '@/projectPath';
 import { resolve, join } from 'node:path';
@@ -93,6 +94,7 @@ export async function runCodex(opts: {
     //
 
     const settings = await readSettings();
+    initTheme(settings.theme);
     let machineId = settings?.machineId;
     if (!machineId) {
         console.error(`[START] No machine ID found in settings, which is unexpected since authAndSetupMachineIfNeeded should have created it. Please report this issue on https://github.com/slopus/happy-cli/issues`);

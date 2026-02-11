@@ -12,6 +12,7 @@ import { configuration } from '@/configuration'
 import * as z from 'zod';
 import { encodeBase64 } from '@/api/encryption';
 import { logger } from '@/ui/logger';
+import type { ThemeName } from '@/ui/theme';
 
 // AI backend profile schema - MUST match happy app exactly
 // Using same Zod schema as GUI for runtime validation consistency
@@ -208,6 +209,8 @@ interface Settings {
   profiles: AIBackendProfile[]
   // CLI-local environment variable cache (not synced)
   localEnvironmentVariables: Record<string, Record<string, string>> // profileId -> env vars
+  // UI theme for terminal display ('dark' | 'light')
+  theme?: ThemeName
 }
 
 const defaultSettings: Settings = {

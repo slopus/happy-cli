@@ -8,6 +8,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Box, Text, useStdout, useInput } from 'ink';
 import { MessageBuffer, type BufferedMessage } from './messageBuffer';
+import { getTheme } from '@/ui/theme';
 
 interface GeminiDisplayProps {
   messageBuffer: MessageBuffer;
@@ -110,17 +111,7 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
     }
   }, [confirmationMode, actionInProgress, onExit, setConfirmationWithTimeout, resetConfirmation]));
 
-  const getMessageColor = (type: BufferedMessage['type']): string => {
-    switch (type) {
-      case 'user': return 'magenta';
-      case 'assistant': return 'cyan';
-      case 'system': return 'blue';
-      case 'tool': return 'yellow';
-      case 'result': return 'green';
-      case 'status': return 'gray';
-      default: return 'white';
-    }
-  };
+  const theme = getTheme();
 
   const formatMessage = (msg: BufferedMessage): string => {
     const lines = msg.content.split('\n');
@@ -143,18 +134,18 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
         width={terminalWidth}
         height={terminalHeight - 4}
         borderStyle="round"
-        borderColor="gray"
+        borderColor={theme.colors.border}
         paddingX={1}
         overflow="hidden"
       >
         <Box flexDirection="column" marginBottom={1}>
           <Text color="cyan" bold>✨ Gemini Agent Messages</Text>
-          <Text color="gray" dimColor>{'─'.repeat(Math.min(terminalWidth - 4, 60))}</Text>
+          <Text color={theme.colors.separator} dimColor={theme.dimMessages}>{'─'.repeat(Math.min(terminalWidth - 4, 60))}</Text>
         </Box>
 
         <Box flexDirection="column" height={terminalHeight - 10} overflow="hidden">
           {messages.length === 0 ? (
-            <Text color="gray" dimColor>Waiting for messages...</Text>
+            <Text color={theme.colors.muted} dimColor={theme.dimMessages}>Waiting for messages...</Text>
           ) : (
             messages
               .filter(msg => {
@@ -177,7 +168,7 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
               .slice(-Math.max(1, terminalHeight - 10))
               .map((msg, index, array) => (
                 <Box key={msg.id} flexDirection="column" marginBottom={index < array.length - 1 ? 1 : 0}>
-                  <Text color={getMessageColor(msg.type)} dimColor>
+                  <Text color={theme.colors.message(msg.type)} dimColor={theme.dimMessages}>
                     {formatMessage(msg)}
                   </Text>
                 </Box>
@@ -191,7 +182,7 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
         width={terminalWidth}
         borderStyle="round"
         borderColor={
-          actionInProgress ? 'gray' :
+          actionInProgress ? theme.colors.muted :
           confirmationMode ? 'red' :
           'cyan'
         }
@@ -202,7 +193,7 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
       >
         <Box flexDirection="column" alignItems="center">
           {actionInProgress ? (
-            <Text color="gray" bold>
+            <Text color={theme.colors.muted} bold>
               Exiting agent...
             </Text>
           ) : confirmationMode ? (
@@ -215,14 +206,14 @@ export const GeminiDisplay: React.FC<GeminiDisplayProps> = ({ messageBuffer, log
                 ✨ Gemini Agent Running • Ctrl-C to exit
               </Text>
               {model && (
-                <Text color="gray" dimColor>
+                <Text color={theme.colors.muted} dimColor={theme.dimMessages}>
                   Model: {model}
                 </Text>
               )}
             </>
           )}
           {process.env.DEBUG && logPath && (
-            <Text color="gray" dimColor>
+            <Text color={theme.colors.muted} dimColor={theme.dimMessages}>
               Debug logs: {logPath}
             </Text>
           )}
