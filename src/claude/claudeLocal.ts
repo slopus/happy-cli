@@ -199,15 +199,18 @@ export async function claudeLocal(opts: {
                 args.push('--allowedTools', opts.allowedTools.join(','));
             }
 
-            // Add custom Claude arguments
-            if (opts.claudeArgs) {
-                args.push(...opts.claudeArgs)
-            }
-
             // Add hook settings for session tracking (when available)
+            // IMPORTANT: This must come BEFORE claudeArgs so that positional arguments
+            // (like prompts) in claudeArgs are placed at the end
             if (opts.hookSettingsPath) {
                 args.push('--settings', opts.hookSettingsPath);
                 logger.debug(`[ClaudeLocal] Using hook settings: ${opts.hookSettingsPath}`);
+            }
+
+            // Add custom Claude arguments
+            // These go LAST so positional arguments (prompts) are at the end
+            if (opts.claudeArgs) {
+                args.push(...opts.claudeArgs)
             }
 
             if (!claudeCliPath || !existsSync(claudeCliPath)) {

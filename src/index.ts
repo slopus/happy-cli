@@ -513,6 +513,15 @@ ${chalk.bold('To clean up runaway processes:')} Use ${chalk.cyan('happy doctor c
           console.error(chalk.red(`Invalid --claude-env format: ${envArg}. Expected KEY=VALUE`))
           process.exit(1)
         }
+      } else if (arg === '--claude-arg') {
+        // Pass specific argument to Claude CLI
+        if (i + 1 >= args.length) {
+          console.error(chalk.red(`Missing value for --claude-arg`))
+          process.exit(1)
+        }
+        const claudeArg = args[++i]
+        options.claudeArgs = options.claudeArgs || []
+        options.claudeArgs.push(claudeArg)
       } else {
         // Pass unknown arguments through to claude
         unknownArgs.push(arg)
