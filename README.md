@@ -1,3 +1,6 @@
+> [!WARNING]
+> This repository has been merged to the [main one](https://github.com/slopus/happy). All issues and code is now living there.
+> 
 # Happy
 
 Code on the go — control AI coding agents from your mobile device.
