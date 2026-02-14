@@ -823,11 +823,16 @@ export class TmuxUtilities {
             createWindowArgs.push('-P');
             createWindowArgs.push('-F', '#{pane_pid}');
 
-            // Add the command to run in the window (runs immediately when window is created)
+            // Add -t flag BEFORE the shell command (tmux requires all flags before the command arg)
+            createWindowArgs.push('-t', sessionName);
+
+            // Add the command to run in the window (MUST be last argument)
             createWindowArgs.push(fullCommand);
 
             // Create window with command and get PID immediately
-            const createResult = await this.executeTmuxCommand(createWindowArgs, sessionName);
+            logger.debug(`[TMUX] Full command args count: ${createWindowArgs.length}, session: ${sessionName}`);
+            // Pass NO session to executeTmuxCommand so it won't append -t again
+            const createResult = await this.executeTmuxCommand(createWindowArgs);
 
             if (!createResult || createResult.returncode !== 0) {
                 throw new Error(`Failed to create tmux window: ${createResult?.stderr}`);
