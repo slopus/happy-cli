@@ -72,7 +72,16 @@ export class ApiSessionClient extends EventEmitter {
             encryptionVariant: this.encryptionVariant,
             logger: (msg, data) => logger.debug(msg, data)
         });
-        registerCommonHandlers(this.rpcHandlerManager, this.metadata.path);
+
+        // Some legacy/invalid sessions may fail to decrypt metadata (null). Avoid crashing the CLI;
+        // the session can still function for remote messaging and will receive metadata updates later.
+        if (this.metadata?.path) {
+            registerCommonHandlers(this.rpcHandlerManager, this.metadata.path);
+        } else {
+            logger.debug('[API] Session metadata unavailable; skipping common handler registration', {
+                sessionId: this.sessionId,
+            });
+        }
 
         //
         // Create socket

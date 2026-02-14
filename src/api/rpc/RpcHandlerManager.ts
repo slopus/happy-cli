@@ -56,7 +56,21 @@ export class RpcHandlerManager {
         request: RpcRequest,
     ): Promise<any> {
         try {
-            const handler = this.handlers.get(request.method);
+            let handler = this.handlers.get(request.method);
+
+            // Compatibility: some clients may send unscoped methods (e.g. "permission")
+            // instead of the usual scoped `${scopePrefix}:${method}` form.
+            if (!handler && !request.method.includes(':')) {
+                const prefixedMethod = this.getPrefixedMethod(request.method);
+                handler = this.handlers.get(prefixedMethod);
+                if (handler) {
+                    this.logger('[RPC] Matched unscoped method to scoped handler', {
+                        method: request.method,
+                        prefixedMethod,
+                    });
+                    request = { ...request, method: prefixedMethod };
+                }
+            }
 
             if (!handler) {
                 this.logger('[RPC] [ERROR] Method not found', { method: request.method });

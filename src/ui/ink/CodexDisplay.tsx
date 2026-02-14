@@ -6,12 +6,16 @@ interface CodexDisplayProps {
     messageBuffer: MessageBuffer
     logPath?: string
     onExit?: () => void
+    mode: 'local' | 'remote'
+    onSubmit?: (message: string) => void
+    onRequestSwitch?: (mode: 'local' | 'remote') => void
 }
 
-export const CodexDisplay: React.FC<CodexDisplayProps> = ({ messageBuffer, logPath, onExit }) => {
+export const CodexDisplay: React.FC<CodexDisplayProps> = ({ messageBuffer, logPath, onExit, mode, onSubmit, onRequestSwitch }) => {
     const [messages, setMessages] = useState<BufferedMessage[]>([])
     const [confirmationMode, setConfirmationMode] = useState<boolean>(false)
     const [actionInProgress, setActionInProgress] = useState<boolean>(false)
+    const [inputBuffer, setInputBuffer] = useState<string>('')
     const confirmationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     const { stdout } = useStdout()
     const terminalWidth = stdout.columns || 80
@@ -73,6 +77,37 @@ export const CodexDisplay: React.FC<CodexDisplayProps> = ({ messageBuffer, logPa
         // Any other key cancels confirmation
         if (confirmationMode) {
             resetConfirmation()
+        }
+
+        // Allow space to request switch to local when in remote mode
+        if (mode === 'remote' && input === ' ') {
+            onRequestSwitch?.('local');
+            return;
+        }
+
+        // Local input handling
+        if (mode === 'local') {
+            if (key.return) {
+                const trimmed = inputBuffer.trim()
+                if (trimmed.length > 0) {
+                    if (trimmed === '/remote') {
+                        onRequestSwitch?.('remote')
+                    } else if (trimmed === '/local') {
+                        onRequestSwitch?.('local')
+                    } else {
+                        onSubmit?.(inputBuffer)
+                    }
+                }
+                setInputBuffer('')
+                return
+            }
+            if (key.backspace || key.delete) {
+                setInputBuffer((prev) => prev.slice(0, -1))
+                return
+            }
+            if (input) {
+                setInputBuffer((prev) => prev + input)
+            }
         }
     }, [confirmationMode, actionInProgress, onExit, setConfirmationWithTimeout, resetConfirmation]))
 
@@ -162,7 +197,15 @@ export const CodexDisplay: React.FC<CodexDisplayProps> = ({ messageBuffer, logPa
                             <Text color="green" bold>
                                 🤖 Codex Agent Running • Ctrl-C to exit
                             </Text>
+                            <Text color={mode === 'local' ? 'yellow' : 'gray'}>
+                                Control: {mode === 'local' ? 'Local' : 'Remote'}
+                            </Text>
                         </>
+                    )}
+                    {mode === 'local' && (
+                        <Text color="yellow">
+                            &gt; {inputBuffer || ''}
+                        </Text>
                     )}
                     {process.env.DEBUG && logPath && (
                         <Text color="gray" dimColor>

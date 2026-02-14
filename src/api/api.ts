@@ -39,14 +39,15 @@ export class ApiClient {
     let encryptionVariant: 'legacy' | 'dataKey';
     if (this.credential.encryption.type === 'dataKey') {
 
-      // Generate new encryption key
-      encryptionKey = getRandomBytes(32);
+      // Use a stable per-machine key so resuming an existing session tag can decrypt
+      // previously-encrypted metadata and agent state.
+      encryptionKey = this.credential.encryption.machineKey;
       encryptionVariant = 'dataKey';
 
       // Derive and encrypt data encryption key
       // const contentDataKey = await deriveKey(this.secret, 'Happy EnCoder', ['content']);
       // const publicKey = libsodiumPublicKeyFromSecretKey(contentDataKey);
-      let encryptedDataKey = libsodiumEncryptForPublicKey(encryptionKey, this.credential.encryption.publicKey);
+      let encryptedDataKey = libsodiumEncryptForPublicKey(this.credential.encryption.machineKey, this.credential.encryption.publicKey);
       dataEncryptionKey = new Uint8Array(encryptedDataKey.length + 1);
       dataEncryptionKey.set([0], 0); // Version byte
       dataEncryptionKey.set(encryptedDataKey, 1); // Data key

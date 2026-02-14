@@ -184,8 +184,12 @@ export class MessageQueue2<T> {
         this.queue = [];
         this.closed = false;
 
-        // Clear waiter without calling it since we're not closing
-        this.waiter = null;
+        // Resolve any pending waiter so callers don't hang indefinitely
+        if (this.waiter) {
+            const waiter = this.waiter;
+            this.waiter = null;
+            waiter(false);
+        }
     }
 
     /**

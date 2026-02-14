@@ -88,16 +88,65 @@ import { execFileSync } from 'node:child_process'
       
       // Parse startedBy argument
       let startedBy: 'daemon' | 'terminal' | undefined = undefined;
+      let resumeArgs: string[] | undefined = undefined;
+      let startingMode: 'local' | 'remote' | undefined = undefined;
+
+      // Support `happy codex resume [args...]` as a passthrough to `codex resume`
+      if (args[1] === 'resume') {
+        resumeArgs = ['resume', ...args.slice(2)];
+      }
+
+      // Support `happy codex --resume [session|latest]` as alias
       for (let i = 1; i < args.length; i++) {
         if (args[i] === '--started-by') {
           startedBy = args[++i] as 'daemon' | 'terminal';
+        }
+        if (args[i] === '--starting-mode') {
+          const next = args[++i];
+          if (next === 'local' || next === 'remote') {
+            startingMode = next;
+          }
+        }
+        if (args[i] === '--resume' && !resumeArgs) {
+          const next = args[i + 1];
+          if (next && !next.startsWith('--')) {
+            if (next === 'latest') {
+              resumeArgs = ['resume', '--last'];
+            } else {
+              resumeArgs = ['resume', next];
+            }
+            i += 1;
+          } else {
+            resumeArgs = ['resume'];
+          }
+        }
+      }
+
+      if (resumeArgs?.[0] === 'resume') {
+        const { extractResumeSessionId } = await import('@/codex/utils/resume');
+        const resumeSessionId = extractResumeSessionId(resumeArgs);
+        const wantsLast = resumeArgs.includes('--last');
+        const allowAll = resumeArgs.includes('--all');
+        if (resumeArgs.includes('--all')) {
+          resumeArgs = resumeArgs.filter((arg) => arg !== '--all');
+        }
+        if (!resumeSessionId && !wantsLast) {
+          const { selectCodexResumeSession } = await import('@/codex/utils/resumePicker');
+          const selection = await selectCodexResumeSession({
+            workingDirectory: process.cwd(),
+            allowAll,
+          });
+          if (!selection) {
+            return;
+          }
+          resumeArgs = ['resume', selection.id];
         }
       }
       
       const {
         credentials
       } = await authAndSetupMachineIfNeeded();
-      await runCodex({credentials, startedBy});
+      await runCodex({ credentials, startedBy, resumeArgs, startingMode });
       // Do not force exit here; allow instrumentation to show lingering handles
     } catch (error) {
       console.error(chalk.red('Error:'), error instanceof Error ? error.message : 'Unknown error')
