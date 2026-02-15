@@ -1,7 +1,9 @@
 import { logger } from "@/ui/logger";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, openSync, readSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { getProjectPath } from "./path";
+
+const CHECK_SESSION_BYTES = 16384; // 16KB is enough to find one valid message
 
 export function claudeCheckSession(sessionId: string, path: string) {
     const projectDir = getProjectPath(path);
@@ -14,10 +16,17 @@ export function claudeCheckSession(sessionId: string, path: string) {
         return false;
     }
 
-    // Check if session contains any messages with valid ID fields
-    const sessionData = readFileSync(sessionFile, 'utf-8').split('\n');
+    // Only read the first 16KB to check for a valid message.
+    // Session files can be hundreds of MB for long conversations;
+    // reading the entire file causes OOM crashes (see #526).
+    const fd = openSync(sessionFile, 'r');
+    const buf = Buffer.alloc(CHECK_SESSION_BYTES);
+    const bytesRead = readSync(fd, buf, 0, CHECK_SESSION_BYTES, 0);
+    closeSync(fd);
+    const chunk = buf.toString('utf-8', 0, bytesRead);
+    const lines = chunk.split('\n');
 
-    const hasGoodMessage = !!sessionData.find((v, index) => {
+    const hasGoodMessage = !!lines.find((v, index) => {
         if (!v.trim()) return false;  // Skip empty lines silently (not errors)
 
         try {
