@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { logger } from '@/ui/logger'
 import { Expo, ExpoPushMessage } from 'expo-server-sdk'
+import { createProxyAgent } from '@/utils/proxy'
 
 export interface PushToken {
     id: string
@@ -32,7 +33,9 @@ export class PushNotificationClient {
                     headers: {
                         'Authorization': `Bearer ${this.token}`,
                         'Content-Type': 'application/json'
-                    }
+                    },
+                    httpAgent: createProxyAgent(),
+                    httpsAgent: createProxyAgent()
                 }
             )
 
