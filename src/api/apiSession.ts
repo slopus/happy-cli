@@ -385,6 +385,36 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     /**
+     * Send cost data from SDK result to the server
+     */
+    sendCostData(totalCostUsd: number, usage?: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }) {
+        if (!usage) return;
+
+        const totalTokens = usage.input_tokens + usage.output_tokens
+            + (usage.cache_read_input_tokens || 0)
+            + (usage.cache_creation_input_tokens || 0);
+
+        const usageReport = {
+            key: 'claude-session',
+            sessionId: this.sessionId,
+            tokens: {
+                total: totalTokens,
+                input: usage.input_tokens,
+                output: usage.output_tokens,
+                cache_creation: usage.cache_creation_input_tokens || 0,
+                cache_read: usage.cache_read_input_tokens || 0
+            },
+            cost: {
+                total: totalCostUsd,
+                input: 0,
+                output: 0
+            }
+        };
+        logger.debugLargeJson('[SOCKET] Sending cost data from result:', usageReport);
+        this.socket.emit('usage-report', usageReport);
+    }
+
+    /**
      * Update session metadata
      * @param handler - Handler function that returns the updated metadata
      */
@@ -452,6 +482,16 @@ export class ApiSessionClient extends EventEmitter {
                 resolve();
             }, 10000);
         });
+    }
+
+    /**
+     * Signal the end of a Claude session turn.
+     * In the standalone CLI (socket-based), this is a no-op since we don't use
+     * the session protocol envelope system. The monorepo version sends turn-end
+     * envelopes via HTTP outbox.
+     */
+    closeClaudeSessionTurn(status: 'completed' | 'failed' | 'cancelled' = 'completed') {
+        logger.debug(`[API] closeClaudeSessionTurn: ${status}`);
     }
 
     async close() {

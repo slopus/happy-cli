@@ -15,6 +15,7 @@ import { EnhancedMode } from "./loop";
 import { RawJSONLines } from "@/claude/types";
 import { OutgoingMessageQueue } from "./utils/OutgoingMessageQueue";
 import { getToolName } from "./utils/getToolName";
+import { parseOptions } from '@/utils/parseOptions';
 
 interface PermissionsField {
     date: number;
@@ -120,6 +121,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
     // Handle messages
     let planModeToolCalls = new Set<string>();
     let ongoingToolCalls = new Map<string, { parentToolCallId: string | null }>();
+    let lastAssistantText = '';
 
     function onMessage(message: SDKMessage) {
 
@@ -154,6 +156,19 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                 }
             }
         }
+
+        // Track last assistant text for options extraction
+        if (message.type === 'assistant') {
+            const umessage = message as SDKAssistantMessage;
+            if (umessage.message.content && Array.isArray(umessage.message.content)) {
+                for (const c of umessage.message.content) {
+                    if (c.type === 'text' && typeof c.text === 'string') {
+                        lastAssistantText = c.text;
+                    }
+                }
+            }
+        }
+
         if (message.type === 'user') {
             let umessage = message as SDKUserMessage;
             if (umessage.message.content && Array.isArray(umessage.message.content)) {
@@ -381,15 +396,32 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                         logger.debug('[remote]: Session reset');
                         session.clearSessionId();
                     },
+                    onResult: (result) => {
+                        if (result.total_cost_usd !== undefined) {
+                            session.client.sendCostData(result.total_cost_usd, result.usage);
+                        }
+                    },
                     onReady: () => {
+                        session.client.closeClaudeSessionTurn('completed');
                         if (!pending && session.queue.size() === 0) {
-                            session.client.sendSessionEvent({ type: 'ready' });
+                            const options = parseOptions(lastAssistantText);
+                            const hasOptions = options.length > 0;
+                            const body = hasOptions
+                                ? options.map((opt, i) => `${i + 1}. ${opt}`).join('\n')
+                                : 'Claude is waiting for your command';
                             session.api.push().sendToAllDevices(
                                 'It\'s ready!',
-                                `Claude is waiting for your command`,
-                                { sessionId: session.client.sessionId }
+                                body,
+                                {
+                                    sessionId: session.client.sessionId,
+                                    ...(hasOptions && {
+                                        options,
+                                        categoryIdentifier: 'claude-options',
+                                    }),
+                                }
                             );
                         }
+                        lastAssistantText = '';
                     },
                     signal: abortController.signal,
                 });
@@ -398,11 +430,13 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                 session.consumeOneTimeFlags();
                 
                 if (!exitReason && abortController.signal.aborted) {
+                    session.client.closeClaudeSessionTurn('cancelled');
                     session.client.sendSessionEvent({ type: 'message', message: 'Aborted by user' });
                 }
             } catch (e) {
-                logger.debug('[remote]: launch error', e instanceof Error ? { message: e.message, stack: e.stack } : e);
+                logger.debug('[remote]: launch error', e);
                 if (!exitReason) {
+                    session.client.closeClaudeSessionTurn('failed');
                     session.client.sendSessionEvent({ type: 'message', message: 'Process exited unexpectedly' });
                     continue;
                 }
