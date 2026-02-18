@@ -111,6 +111,14 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
         } as EnhancedMode);
     });
 
+    // Emit coordinator state changes to mobile app
+    coordinator.onStateChanged((state) => {
+        session.client.sendSessionEvent({
+            type: 'coordinator-state',
+            ...state,
+        });
+    });
+
     // Coordinator RPC handlers
     session.client.rpcHandlerManager.registerHandler<
         { tasks: Array<{ prompt: string; label?: string }> },

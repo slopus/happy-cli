@@ -316,6 +316,8 @@ export class ApiSessionClient extends EventEmitter {
         type: 'permission-mode-changed', mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan'
     } | {
         type: 'ready'
+    } | {
+        type: 'coordinator-state', [key: string]: unknown
     }, id?: string) {
         let content = {
             role: 'agent',

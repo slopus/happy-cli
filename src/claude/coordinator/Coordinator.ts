@@ -12,6 +12,7 @@ export class Coordinator {
     private enabled = false;
     private config: CoordinatorConfig;
     private onTaskReady?: (prompt: string) => void;
+    private onStateChange?: (state: CoordinatorState) => void;
 
     constructor(config?: Partial<CoordinatorConfig>) {
         this.config = {
@@ -25,6 +26,17 @@ export class Coordinator {
         this.onTaskReady = handler;
     }
 
+    /** Register callback for state changes */
+    onStateChanged(handler: (state: CoordinatorState) => void) {
+        this.onStateChange = handler;
+    }
+
+    private emitStateChange() {
+        if (this.onStateChange) {
+            this.onStateChange(this.getState());
+        }
+    }
+
     /** Add a task to the queue */
     addTask(prompt: string, label?: string): CoordinatorTask {
         const task: CoordinatorTask = {
@@ -36,6 +48,7 @@ export class Coordinator {
         };
         this.tasks.push(task);
         logger.debug(`[coordinator] Task added: ${task.id} "${label || prompt.slice(0, 50)}"`);
+        this.emitStateChange();
         return task;
     }
 
@@ -52,6 +65,7 @@ export class Coordinator {
         if (task.status === 'running') return false;
         this.tasks.splice(idx, 1);
         logger.debug(`[coordinator] Task removed: ${id}`);
+        this.emitStateChange();
         return true;
     }
 
@@ -59,18 +73,21 @@ export class Coordinator {
     clearPending() {
         this.tasks = this.tasks.filter(t => t.status === 'running' || t.status === 'completed');
         logger.debug('[coordinator] Pending tasks cleared');
+        this.emitStateChange();
     }
 
     /** Enable the coordinator */
     enable() {
         this.enabled = true;
         logger.debug('[coordinator] Enabled');
+        this.emitStateChange();
     }
 
     /** Disable the coordinator */
     disable() {
         this.enabled = false;
         logger.debug('[coordinator] Disabled');
+        this.emitStateChange();
     }
 
     /** Get current state for the mobile app */
@@ -101,6 +118,7 @@ export class Coordinator {
         const next = this.tasks.find(t => t.status === 'pending');
         if (!next) {
             logger.debug('[coordinator] No more pending tasks');
+            this.emitStateChange();
             return false;
         }
 
@@ -112,6 +130,8 @@ export class Coordinator {
             : next.prompt;
 
         logger.debug(`[coordinator] Dispatching task: ${next.id} "${next.label || next.prompt.slice(0, 50)}"`);
+
+        this.emitStateChange();
 
         if (this.onTaskReady) {
             this.onTaskReady(prompt);
