@@ -16,6 +16,7 @@ import { RawJSONLines } from "@/claude/types";
 import { OutgoingMessageQueue } from "./utils/OutgoingMessageQueue";
 import { getToolName } from "./utils/getToolName";
 import { parseOptions } from '@/utils/parseOptions';
+import { Coordinator, type CoordinatorTask, type CoordinatorState } from '@/claude/coordinator';
 
 interface PermissionsField {
     date: number;
@@ -99,6 +100,70 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
 
     // Create permission handler
     const permissionHandler = new PermissionHandler(session);
+
+    // Create coordinator for auto-pilot task management
+    const coordinator = new Coordinator();
+
+    // Wire coordinator to inject messages via the same path as user messages
+    coordinator.onNextTask((prompt) => {
+        session.queue.push(prompt, {
+            permissionMode: 'bypassPermissions',
+        } as EnhancedMode);
+    });
+
+    // Coordinator RPC handlers
+    session.client.rpcHandlerManager.registerHandler<
+        { tasks: Array<{ prompt: string; label?: string }> },
+        { success: boolean; tasks: CoordinatorTask[] }
+    >('coordinator:set-tasks', async (params) => {
+        coordinator.clearPending();
+        const tasks = coordinator.addTasks(params.tasks);
+        coordinator.enable();
+        return { success: true, tasks };
+    });
+
+    session.client.rpcHandlerManager.registerHandler<
+        { prompt: string; label?: string },
+        { success: boolean; task: CoordinatorTask }
+    >('coordinator:add-task', async (params) => {
+        const task = coordinator.addTask(params.prompt, params.label);
+        return { success: true, task };
+    });
+
+    session.client.rpcHandlerManager.registerHandler<
+        { id: string },
+        { success: boolean }
+    >('coordinator:remove-task', async (params) => {
+        const success = coordinator.removeTask(params.id);
+        return { success };
+    });
+
+    session.client.rpcHandlerManager.registerHandler<
+        void,
+        CoordinatorState
+    >('coordinator:get-state', async () => {
+        return coordinator.getState();
+    });
+
+    session.client.rpcHandlerManager.registerHandler<
+        { enabled: boolean },
+        { success: boolean }
+    >('coordinator:toggle', async (params) => {
+        if (params.enabled) {
+            coordinator.enable();
+        } else {
+            coordinator.disable();
+        }
+        return { success: true };
+    });
+
+    session.client.rpcHandlerManager.registerHandler<
+        void,
+        { success: boolean }
+    >('coordinator:clear', async () => {
+        coordinator.clearPending();
+        return { success: true };
+    });
 
     // Create outgoing message queue
     const messageQueue = new OutgoingMessageQueue(
@@ -404,6 +469,29 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                     onReady: () => {
                         session.client.closeClaudeSessionTurn('completed');
                         if (!pending && session.queue.size() === 0) {
+                            // Try coordinator first — if it dispatches a task, skip notification
+                            if (coordinator.onClaudeIdle()) {
+                                const state = coordinator.getState();
+                                const running = state.tasks.find(t => t.status === 'running');
+                                session.api.push().sendToAllDevices(
+                                    'Auto-pilot',
+                                    `Running task: ${running?.label || running?.prompt.slice(0, 60) || 'next task'} (${coordinator.pendingCount()} remaining)`,
+                                    { sessionId: session.client.sessionId }
+                                );
+                                lastAssistantText = '';
+                                return;
+                            }
+
+                            // Check if coordinator just finished all tasks
+                            const cState = coordinator.getState();
+                            if (cState.tasks.length > 0 && coordinator.pendingCount() === 0 && !cState.tasks.some(t => t.status === 'running')) {
+                                session.api.push().sendToAllDevices(
+                                    'Auto-pilot complete!',
+                                    `All ${cState.tasks.filter(t => t.status === 'completed').length} tasks finished.`,
+                                    { sessionId: session.client.sessionId }
+                                );
+                            }
+
                             const options = parseOptions(lastAssistantText);
                             const hasOptions = options.length > 0;
                             const body = hasOptions
