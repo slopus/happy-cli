@@ -17,7 +17,7 @@ import { writeDaemonState, DaemonLocallyPersistedState, readDaemonState, acquire
 
 import { cleanupDaemonState, isDaemonRunningCurrentlyInstalledHappyVersion, stopDaemon } from './controlClient';
 import { startDaemonControlServer } from './controlServer';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { projectPath } from '@/projectPath';
 import { getTmuxUtilities, isTmuxAvailable, parseTmuxSessionIdentifier, formatTmuxSessionIdentifier } from '@/utils/tmux';
@@ -32,6 +32,61 @@ export const initialMachineMetadata: MachineMetadata = {
   happyHomeDir: configuration.happyHomeDir,
   happyLibDir: projectPath()
 };
+
+// --- Session tracking persistence ---
+// Persists tracked sessions to disk so they survive daemon restarts.
+// The file is a simple JSON array of { pid, happySessionId, startedBy }.
+
+type PersistedSession = { pid: number; happySessionId: string; startedBy: string };
+
+const trackedSessionsFile = join(configuration.happyHomeDir, 'tracked-sessions.json');
+
+function persistTrackedSessions(pidToTrackedSession: Map<number, TrackedSession>): void {
+  try {
+    const entries: PersistedSession[] = [];
+    for (const [pid, session] of pidToTrackedSession) {
+      if (session.happySessionId) {
+        entries.push({ pid, happySessionId: session.happySessionId, startedBy: session.startedBy });
+      }
+    }
+    writeFileSync(trackedSessionsFile, JSON.stringify(entries));
+  } catch (error) {
+    logger.debug('[SESSION PERSIST] Failed to write tracked sessions:', error);
+  }
+}
+
+function recoverTrackedSessions(pidToTrackedSession: Map<number, TrackedSession>): number {
+  if (!existsSync(trackedSessionsFile)) return 0;
+
+  try {
+    const data = readFileSync(trackedSessionsFile, 'utf-8');
+    const entries: PersistedSession[] = JSON.parse(data);
+    let recovered = 0;
+
+    for (const entry of entries) {
+      if (pidToTrackedSession.has(entry.pid)) continue;
+
+      // Check if process is still alive
+      try {
+        process.kill(entry.pid, 0);
+      } catch {
+        continue;
+      }
+
+      pidToTrackedSession.set(entry.pid, {
+        startedBy: entry.startedBy,
+        happySessionId: entry.happySessionId,
+        pid: entry.pid
+      });
+      recovered++;
+    }
+
+    return recovered;
+  } catch (error) {
+    logger.debug('[SESSION PERSIST] Failed to read tracked sessions:', error);
+    return 0;
+  }
+}
 
 // Get environment variables for a profile, filtered for agent compatibility
 async function getProfileEnvironmentVariablesForAgent(
@@ -202,6 +257,7 @@ export async function startDaemon(): Promise<void> {
           awaiter(existingSession);
           logger.debug(`[DAEMON RUN] Resolved session awaiter for PID ${pid}`);
         }
+        persistTrackedSessions(pidToTrackedSession);
       } else if (!existingSession) {
         // New session started externally
         const trackedSession: TrackedSession = {
@@ -212,6 +268,7 @@ export async function startDaemon(): Promise<void> {
         };
         pidToTrackedSession.set(pid, trackedSession);
         logger.debug(`[DAEMON RUN] Registered externally-started session ${sessionId}`);
+        persistTrackedSessions(pidToTrackedSession);
       }
     };
 
@@ -621,6 +678,7 @@ export async function startDaemon(): Promise<void> {
           }
 
           pidToTrackedSession.delete(pid);
+          persistTrackedSessions(pidToTrackedSession);
           logger.debug(`[DAEMON RUN] Removed session ${sessionId} from tracking`);
           return true;
         }
@@ -634,6 +692,7 @@ export async function startDaemon(): Promise<void> {
     const onChildExited = (pid: number) => {
       logger.debug(`[DAEMON RUN] Removing exited process PID ${pid} from tracking`);
       pidToTrackedSession.delete(pid);
+      persistTrackedSessions(pidToTrackedSession);
     };
 
     // Start control server
@@ -674,6 +733,12 @@ export async function startDaemon(): Promise<void> {
       daemonState: initialDaemonState
     });
     logger.debug(`[DAEMON RUN] Machine registered: ${machine.id}`);
+
+    // Recover sessions from previous daemon instance
+    const recoveredCount = recoverTrackedSessions(pidToTrackedSession);
+    if (recoveredCount > 0) {
+      logger.debug(`[DAEMON RUN] Recovered ${recoveredCount} session(s) from previous daemon instance`);
+    }
 
     // Create realtime machine session
     const apiMachine = api.machineSyncClient(machine);
@@ -716,6 +781,7 @@ export async function startDaemon(): Promise<void> {
           pidToTrackedSession.delete(pid);
         }
       }
+      persistTrackedSessions(pidToTrackedSession);
 
       // Check if daemon needs update
       // If version on disk is different from the one in package.json - we need to restart

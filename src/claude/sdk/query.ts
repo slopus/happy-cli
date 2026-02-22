@@ -340,7 +340,10 @@ export function query(config: {
 
     // Spawn Claude Code process
     // Use clean env for global claude to avoid local node_modules/.bin taking precedence
-    const spawnEnv = isCommandOnly ? getCleanEnv() : process.env
+    const spawnEnv = isCommandOnly ? getCleanEnv() : { ...process.env }
+    // Remove Claude Code nesting detection vars - Happy CLI legitimately spawns Claude as a subprocess
+    delete spawnEnv.CLAUDECODE
+    delete spawnEnv.CLAUDE_CODE_ENTRYPOINT
     logDebug(`Spawning Claude Code process: ${spawnCommand} ${spawnArgs.join(' ')} (using ${isCommandOnly ? 'clean' : 'normal'} env)`)
 
     const child = spawn(spawnCommand, spawnArgs, {

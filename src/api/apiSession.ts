@@ -72,7 +72,7 @@ export class ApiSessionClient extends EventEmitter {
             encryptionVariant: this.encryptionVariant,
             logger: (msg, data) => logger.debug(msg, data)
         });
-        registerCommonHandlers(this.rpcHandlerManager, this.metadata.path);
+        registerCommonHandlers(this.rpcHandlerManager, this.metadata.path, this.sessionId);
 
         //
         // Create socket
@@ -221,10 +221,9 @@ export class ApiSessionClient extends EventEmitter {
 
         logger.debugLargeJson('[SOCKET] Sending message through socket:', content)
 
-        // Check if socket is connected before sending
+        // Socket.io buffers messages when disconnected and sends them on reconnect
         if (!this.socket.connected) {
-            logger.debug('[API] Socket not connected, cannot send Claude session message. Message will be lost:', { type: body.type });
-            return;
+            logger.debug('[API] Socket not connected, message will be buffered for reconnect:', { type: body.type });
         }
 
         const encrypted = encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, content));
@@ -267,12 +266,11 @@ export class ApiSessionClient extends EventEmitter {
         };
         const encrypted = encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, content));
         
-        // Check if socket is connected before sending
+        // Socket.io buffers messages when disconnected and sends them on reconnect
         if (!this.socket.connected) {
-            logger.debug('[API] Socket not connected, cannot send message. Message will be lost:', { type: body.type });
-            // TODO: Consider implementing message queue or HTTP fallback for reliability
+            logger.debug('[API] Socket not connected, message will be buffered for reconnect:', { type: body.type });
         }
-        
+
         this.socket.emit('message', {
             sid: this.sessionId,
             message: encrypted
@@ -316,6 +314,8 @@ export class ApiSessionClient extends EventEmitter {
         type: 'permission-mode-changed', mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan'
     } | {
         type: 'ready'
+    } | {
+        type: 'coordinator-state', [key: string]: unknown
     }, id?: string) {
         let content = {
             role: 'agent',
@@ -381,6 +381,36 @@ export class ApiSessionClient extends EventEmitter {
             }
         }
         logger.debugLargeJson('[SOCKET] Sending usage data:', usageReport)
+        this.socket.emit('usage-report', usageReport);
+    }
+
+    /**
+     * Send cost data from SDK result to the server
+     */
+    sendCostData(totalCostUsd: number, usage?: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }) {
+        if (!usage) return;
+
+        const totalTokens = usage.input_tokens + usage.output_tokens
+            + (usage.cache_read_input_tokens || 0)
+            + (usage.cache_creation_input_tokens || 0);
+
+        const usageReport = {
+            key: 'claude-session',
+            sessionId: this.sessionId,
+            tokens: {
+                total: totalTokens,
+                input: usage.input_tokens,
+                output: usage.output_tokens,
+                cache_creation: usage.cache_creation_input_tokens || 0,
+                cache_read: usage.cache_read_input_tokens || 0
+            },
+            cost: {
+                total: totalCostUsd,
+                input: 0,
+                output: 0
+            }
+        };
+        logger.debugLargeJson('[SOCKET] Sending cost data from result:', usageReport);
         this.socket.emit('usage-report', usageReport);
     }
 
@@ -452,6 +482,16 @@ export class ApiSessionClient extends EventEmitter {
                 resolve();
             }, 10000);
         });
+    }
+
+    /**
+     * Signal the end of a Claude session turn.
+     * In the standalone CLI (socket-based), this is a no-op since we don't use
+     * the session protocol envelope system. The monorepo version sends turn-end
+     * envelopes via HTTP outbox.
+     */
+    closeClaudeSessionTurn(status: 'completed' | 'failed' | 'cancelled' = 'completed') {
+        logger.debug(`[API] closeClaudeSessionTurn: ${status}`);
     }
 
     async close() {

@@ -16,9 +16,12 @@ import { randomUUID } from "node:crypto";
  * Set the terminal window title using OSC escape sequences.
  * Works with iTerm2, Terminal.app, and most modern terminal emulators.
  * Uses OSC 0 which sets both window title and icon name.
+ * Only writes if stdout is a TTY to avoid EPIPE in remote/daemon sessions.
  */
 function setTerminalTitle(title: string): void {
-    process.stdout.write(`\x1b]0;${title}\x07`);
+    if (process.stdout.isTTY) {
+        process.stdout.write(`\x1b]0;${title}\x07`);
+    }
 }
 
 export async function startHappyServer(client: ApiSessionClient) {

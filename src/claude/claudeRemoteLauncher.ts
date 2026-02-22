@@ -15,6 +15,9 @@ import { EnhancedMode } from "./loop";
 import { RawJSONLines } from "@/claude/types";
 import { OutgoingMessageQueue } from "./utils/OutgoingMessageQueue";
 import { getToolName } from "./utils/getToolName";
+import { parseOptions } from '@/utils/parseOptions';
+import { Coordinator, type CoordinatorTask, type CoordinatorState } from '@/claude/coordinator';
+
 
 interface PermissionsField {
     date: number;
@@ -99,6 +102,96 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
     // Create permission handler
     const permissionHandler = new PermissionHandler(session);
 
+    // Create coordinator for auto-pilot task management
+    const coordinator = new Coordinator();
+
+    // Wire coordinator to inject messages via the same path as user messages
+    coordinator.onNextTask((prompt) => {
+        session.queue.push(prompt, {
+            permissionMode: 'bypassPermissions',
+        } as EnhancedMode);
+    });
+
+    // Coordinator RPC handlers
+    session.client.rpcHandlerManager.registerHandler<
+        { tasks: Array<{ prompt: string; label?: string }> },
+        { success: boolean; tasks: CoordinatorTask[] }
+    >('coordinator:set-tasks', async (params) => {
+        coordinator.clearPending();
+        const tasks = coordinator.addTasks(params.tasks);
+        coordinator.enable();
+        return { success: true, tasks };
+    });
+
+    session.client.rpcHandlerManager.registerHandler<
+        { prompt: string; label?: string },
+        { success: boolean; task: CoordinatorTask }
+    >('coordinator:add-task', async (params) => {
+        const task = coordinator.addTask(params.prompt, params.label);
+        return { success: true, task };
+    });
+
+    session.client.rpcHandlerManager.registerHandler<
+        { id: string },
+        { success: boolean }
+    >('coordinator:remove-task', async (params) => {
+        const success = coordinator.removeTask(params.id);
+        return { success };
+    });
+
+    session.client.rpcHandlerManager.registerHandler<
+        void,
+        CoordinatorState
+    >('coordinator:get-state', async () => {
+        return coordinator.getState();
+    });
+
+    session.client.rpcHandlerManager.registerHandler<
+        { enabled: boolean },
+        { success: boolean }
+    >('coordinator:toggle', async (params) => {
+        if (params.enabled) {
+            coordinator.enable();
+        } else {
+            coordinator.disable();
+        }
+        return { success: true };
+    });
+
+    session.client.rpcHandlerManager.registerHandler<
+        void,
+        { success: boolean }
+    >('coordinator:clear', async () => {
+        coordinator.clearPending();
+        return { success: true };
+    });
+
+    session.client.rpcHandlerManager.registerHandler<
+        void,
+        { success: boolean; task?: CoordinatorTask }
+    >('coordinator:dispatch-next', async () => {
+        const dispatched = coordinator.dispatchNext();
+        if (dispatched) {
+            const state = coordinator.getState();
+            const running = state.tasks.find(t => t.status === 'running');
+            session.api.push().sendToAllDevices(
+                'Auto-pilot',
+                `Running task: ${running?.label || running?.prompt.slice(0, 60) || 'next task'} (${coordinator.pendingCount()} remaining)`,
+                { sessionId: session.client.sessionId }
+            );
+            return { success: true, task: running };
+        }
+        return { success: false };
+    });
+
+    // Emit coordinator state changes to mobile app
+    coordinator.onStateChanged((state) => {
+        session.client.sendSessionEvent({
+            type: 'coordinator-state',
+            ...state,
+        });
+    });
+
     // Create outgoing message queue
     const messageQueue = new OutgoingMessageQueue(
         (logMessage) => session.client.sendClaudeSessionMessage(logMessage)
@@ -108,6 +201,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
     permissionHandler.setOnPermissionRequest((toolCallId: string) => {
         messageQueue.releaseToolCall(toolCallId);
     });
+
 
     // Create SDK to Log converter (pass responses from permissions)
     const sdkToLogConverter = new SDKToLogConverter({
@@ -120,6 +214,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
     // Handle messages
     let planModeToolCalls = new Set<string>();
     let ongoingToolCalls = new Map<string, { parentToolCallId: string | null }>();
+    let lastAssistantText = '';
 
     function onMessage(message: SDKMessage) {
 
@@ -154,6 +249,19 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                 }
             }
         }
+
+        // Track last assistant text for options extraction
+        if (message.type === 'assistant') {
+            const umessage = message as SDKAssistantMessage;
+            if (umessage.message.content && Array.isArray(umessage.message.content)) {
+                for (const c of umessage.message.content) {
+                    if (c.type === 'text' && typeof c.text === 'string') {
+                        lastAssistantText = c.text;
+                    }
+                }
+            }
+        }
+
         if (message.type === 'user') {
             let umessage = message as SDKUserMessage;
             if (umessage.message.content && Array.isArray(umessage.message.content)) {
@@ -381,15 +489,69 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                         logger.debug('[remote]: Session reset');
                         session.clearSessionId();
                     },
+                    onResult: (result) => {
+                        if (result.total_cost_usd !== undefined) {
+                            session.client.sendCostData(result.total_cost_usd, result.usage);
+                        }
+                    },
                     onReady: () => {
+                        session.client.closeClaudeSessionTurn('completed');
                         if (!pending && session.queue.size() === 0) {
-                            session.client.sendSessionEvent({ type: 'ready' });
+                            // Try coordinator first — if it dispatches a task, skip notification
+                            if (coordinator.onClaudeIdle()) {
+                                // Live Activity updated via coordinator.onStateChanged
+                                const state = coordinator.getState();
+                                const running = state.tasks.find(t => t.status === 'running');
+                                session.api.push().sendToAllDevices(
+                                    'Auto-pilot',
+                                    `Running task: ${running?.label || running?.prompt.slice(0, 60) || 'next task'} (${coordinator.pendingCount()} remaining)`,
+                                    { sessionId: session.client.sessionId }
+                                );
+                                lastAssistantText = '';
+                                return;
+                            }
+
+                            // Check if coordinator just finished all tasks
+                            const cState = coordinator.getState();
+                            if (cState.tasks.length > 0 && coordinator.pendingCount() === 0 && !cState.tasks.some(t => t.status === 'running')) {
+                                const completedCount = cState.tasks.filter(t => t.status === 'completed').length;
+                                const failedCount = cState.tasks.filter(t => t.status === 'failed').length;
+                                const summary = failedCount > 0
+                                    ? `${completedCount} completed, ${failedCount} failed.`
+                                    : `All ${completedCount} tasks finished.`;
+                                session.api.push().sendToAllDevices(
+                                    'Auto-pilot complete!',
+                                    summary,
+                                    { sessionId: session.client.sessionId }
+                                );
+                            }
+
+                            const options = parseOptions(lastAssistantText);
+                            const hasOptions = options.length > 0;
+                            const plainText = lastAssistantText
+                                .replace(/<options>[\s\S]*<\/options>/g, '')
+                                .replace(/```[\s\S]*?```/g, '[code]')
+                                .replace(/[*_~`#>\[\]]/g, '')
+                                .replace(/\n+/g, ' ')
+                                .trim();
+                            const body = hasOptions
+                                ? options.map((opt, i) => `${i + 1}. ${opt}`).join('\n')
+                                : plainText.length > 0
+                                    ? plainText.slice(0, 200) + (plainText.length > 200 ? '...' : '')
+                                    : 'Claude is waiting for your command';
                             session.api.push().sendToAllDevices(
                                 'It\'s ready!',
-                                `Claude is waiting for your command`,
-                                { sessionId: session.client.sessionId }
+                                body,
+                                {
+                                    sessionId: session.client.sessionId,
+                                    ...(hasOptions && {
+                                        options,
+                                        categoryIdentifier: 'claude-options',
+                                    }),
+                                }
                             );
                         }
+                        lastAssistantText = '';
                     },
                     signal: abortController.signal,
                 });
@@ -398,11 +560,15 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                 session.consumeOneTimeFlags();
                 
                 if (!exitReason && abortController.signal.aborted) {
+                    session.client.closeClaudeSessionTurn('cancelled');
                     session.client.sendSessionEvent({ type: 'message', message: 'Aborted by user' });
                 }
             } catch (e) {
                 logger.debug('[remote]: launch error', e);
+                // Mark any running coordinator task as failed
+                coordinator.markCurrentFailed(e instanceof Error ? e.message : 'Process exited unexpectedly');
                 if (!exitReason) {
+                    session.client.closeClaudeSessionTurn('failed');
                     session.client.sendSessionEvent({ type: 'message', message: 'Process exited unexpectedly' });
                     continue;
                 }
