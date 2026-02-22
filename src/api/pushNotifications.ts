@@ -157,7 +157,10 @@ export class PushNotificationClient {
                         body,
                         data,
                         sound: 'default',
-                        priority: 'high'
+                        priority: 'high',
+                        ...(data?.categoryIdentifier && {
+                            categoryId: data.categoryIdentifier,
+                        }),
                     }
                 })
 

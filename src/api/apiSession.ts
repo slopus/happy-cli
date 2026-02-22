@@ -221,10 +221,9 @@ export class ApiSessionClient extends EventEmitter {
 
         logger.debugLargeJson('[SOCKET] Sending message through socket:', content)
 
-        // Check if socket is connected before sending
+        // Socket.io buffers messages when disconnected and sends them on reconnect
         if (!this.socket.connected) {
-            logger.debug('[API] Socket not connected, cannot send Claude session message. Message will be lost:', { type: body.type });
-            return;
+            logger.debug('[API] Socket not connected, message will be buffered for reconnect:', { type: body.type });
         }
 
         const encrypted = encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, content));
@@ -267,12 +266,11 @@ export class ApiSessionClient extends EventEmitter {
         };
         const encrypted = encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, content));
         
-        // Check if socket is connected before sending
+        // Socket.io buffers messages when disconnected and sends them on reconnect
         if (!this.socket.connected) {
-            logger.debug('[API] Socket not connected, cannot send message. Message will be lost:', { type: body.type });
-            // TODO: Consider implementing message queue or HTTP fallback for reliability
+            logger.debug('[API] Socket not connected, message will be buffered for reconnect:', { type: body.type });
         }
-        
+
         this.socket.emit('message', {
             sid: this.sessionId,
             message: encrypted

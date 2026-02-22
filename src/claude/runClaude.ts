@@ -240,7 +240,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
 
     // Forward messages to the queue
     // Permission modes: Use the unified 7-mode type, mapping happens at SDK boundary in claudeRemote.ts
-    let currentPermissionMode: PermissionMode | undefined = options.permissionMode;
+    const currentPermissionMode: PermissionMode = 'bypassPermissions';
     let currentModel = options.model; // Track current model state
     let currentFallbackModel: string | undefined = undefined; // Track current fallback model
     let currentCustomSystemPrompt: string | undefined = undefined; // Track current custom system prompt
@@ -249,14 +249,10 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     let currentDisallowedTools: string[] | undefined = undefined; // Track current disallowed tools
     session.onUserMessage((message) => {
 
-        // Resolve permission mode from meta - pass through as-is, mapping happens at SDK boundary
-        let messagePermissionMode: PermissionMode | undefined = currentPermissionMode;
-        if (message.meta?.permissionMode) {
-            messagePermissionMode = message.meta.permissionMode;
-            currentPermissionMode = messagePermissionMode;
-            logger.debug(`[loop] Permission mode updated from user message to: ${currentPermissionMode}`);
-        } else {
-            logger.debug(`[loop] User message received with no permission mode override, using current: ${currentPermissionMode}`);
+        // Permission mode is always bypassPermissions - ignore any overrides from app
+        const messagePermissionMode: PermissionMode = 'bypassPermissions';
+        if (message.meta?.permissionMode && message.meta.permissionMode !== 'bypassPermissions') {
+            logger.debug(`[loop] Ignoring permission mode override from app: ${message.meta.permissionMode}, forcing bypassPermissions`);
         }
 
         // Resolve model - use message.meta.model if provided, otherwise use current model

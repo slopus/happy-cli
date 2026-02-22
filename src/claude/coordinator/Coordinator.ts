@@ -140,6 +140,54 @@ export class Coordinator {
         return true;
     }
 
+    /**
+     * Manually dispatch the next pending task, bypassing enabled/autoAdvance checks.
+     * Won't dispatch if a task is already running.
+     * Returns true if a task was dispatched.
+     */
+    dispatchNext(): boolean {
+        // Don't dispatch if a task is already running
+        if (this.tasks.some(t => t.status === 'running')) {
+            logger.debug('[coordinator] Cannot dispatch — a task is already running');
+            return false;
+        }
+
+        const next = this.tasks.find(t => t.status === 'pending');
+        if (!next) {
+            logger.debug('[coordinator] No pending tasks to dispatch');
+            return false;
+        }
+
+        next.status = 'running';
+        next.startedAt = Date.now();
+        const prompt = this.config.taskPrefix
+            ? `${this.config.taskPrefix}\n\n${next.prompt}`
+            : next.prompt;
+
+        logger.debug(`[coordinator] Manual dispatch: ${next.id} "${next.label || next.prompt.slice(0, 50)}"`);
+        this.emitStateChange();
+
+        if (this.onTaskReady) {
+            this.onTaskReady(prompt);
+        }
+
+        return true;
+    }
+
+    /**
+     * Mark the currently running task as failed.
+     * Called when Claude exits with an error or the session crashes.
+     */
+    markCurrentFailed(error?: string): void {
+        const running = this.tasks.find(t => t.status === 'running');
+        if (!running) return;
+
+        running.status = 'failed';
+        running.completedAt = Date.now();
+        logger.debug(`[coordinator] Task failed: ${running.id} ${error ? `— ${error}` : ''}`);
+        this.emitStateChange();
+    }
+
     /** Check if coordinator has pending work */
     hasPendingTasks(): boolean {
         return this.tasks.some(t => t.status === 'pending');

@@ -17,7 +17,7 @@ import { OutgoingMessageQueue } from "./utils/OutgoingMessageQueue";
 import { getToolName } from "./utils/getToolName";
 import { parseOptions } from '@/utils/parseOptions';
 import { Coordinator, type CoordinatorTask, type CoordinatorState } from '@/claude/coordinator';
-import { ApnsLiveActivityClient, type LiveActivityContentState } from '@/api/apnsLiveActivity';
+
 
 interface PermissionsField {
     date: number;
@@ -166,62 +166,30 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
         return { success: true };
     });
 
-    // ── Live Activity ─────────────────────────────────────────────────
-    const apnsClient = new ApnsLiveActivityClient();
-    let liveActivityToken: string | null = null;
-
-    /** Send a Live Activity update if we have a push token */
-    function updateLiveActivity(
-        status: LiveActivityContentState['status'],
-        taskCurrent?: string | null,
-        taskProgress?: number | null,
-        taskTotal?: number | null,
-    ): void {
-        if (!liveActivityToken || !apnsClient.isAvailable) return;
-        const state: LiveActivityContentState = {
-            status,
-            taskCurrent: taskCurrent ?? null,
-            taskProgress: taskProgress ?? null,
-            taskTotal: taskTotal ?? null,
-            updatedAt: Date.now() / 1000,
-        };
-        apnsClient.update(liveActivityToken, state);
-    }
-
-    // RPC: receive ActivityKit push token from the mobile app
     session.client.rpcHandlerManager.registerHandler<
-        { token: string },
-        { success: boolean }
-    >('set-live-activity-token', async (params) => {
-        liveActivityToken = params.token;
-        logger.debug(`[APNs] Received Live Activity push token (${params.token.slice(0, 8)}...)`);
-        // Send initial state update
-        const cState = coordinator.getState();
-        const running = cState.tasks.find(t => t.status === 'running');
-        updateLiveActivity(
-            'running',
-            running?.label || running?.prompt.slice(0, 80),
-            cState.tasks.filter(t => t.status === 'completed').length,
-            cState.tasks.length > 0 ? cState.tasks.length : null,
-        );
-        return { success: true };
+        void,
+        { success: boolean; task?: CoordinatorTask }
+    >('coordinator:dispatch-next', async () => {
+        const dispatched = coordinator.dispatchNext();
+        if (dispatched) {
+            const state = coordinator.getState();
+            const running = state.tasks.find(t => t.status === 'running');
+            session.api.push().sendToAllDevices(
+                'Auto-pilot',
+                `Running task: ${running?.label || running?.prompt.slice(0, 60) || 'next task'} (${coordinator.pendingCount()} remaining)`,
+                { sessionId: session.client.sessionId }
+            );
+            return { success: true, task: running };
+        }
+        return { success: false };
     });
 
-    // Emit coordinator state changes to mobile app + Live Activity
+    // Emit coordinator state changes to mobile app
     coordinator.onStateChanged((state) => {
         session.client.sendSessionEvent({
             type: 'coordinator-state',
             ...state,
         });
-        // Also update Live Activity
-        const running = state.tasks.find(t => t.status === 'running');
-        const completed = state.tasks.filter(t => t.status === 'completed').length;
-        updateLiveActivity(
-            running ? 'running' : 'waiting',
-            running?.label || running?.prompt.slice(0, 80),
-            completed,
-            state.tasks.length > 0 ? state.tasks.length : null,
-        );
     });
 
     // Create outgoing message queue
@@ -232,8 +200,8 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
     // Set up callback to release delayed messages when permission is requested
     permissionHandler.setOnPermissionRequest((toolCallId: string) => {
         messageQueue.releaseToolCall(toolCallId);
-        updateLiveActivity('permission');
     });
+
 
     // Create SDK to Log converter (pass responses from permissions)
     const sdkToLogConverter = new SDKToLogConverter({
@@ -495,7 +463,6 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                             modeHash = msg.hash;
                             mode = msg.mode;
                             permissionHandler.handleModeChange(mode.permissionMode);
-                            updateLiveActivity('running');
                             return {
                                 message: msg.message,
                                 mode: msg.mode
@@ -547,21 +514,31 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                             // Check if coordinator just finished all tasks
                             const cState = coordinator.getState();
                             if (cState.tasks.length > 0 && coordinator.pendingCount() === 0 && !cState.tasks.some(t => t.status === 'running')) {
+                                const completedCount = cState.tasks.filter(t => t.status === 'completed').length;
+                                const failedCount = cState.tasks.filter(t => t.status === 'failed').length;
+                                const summary = failedCount > 0
+                                    ? `${completedCount} completed, ${failedCount} failed.`
+                                    : `All ${completedCount} tasks finished.`;
                                 session.api.push().sendToAllDevices(
                                     'Auto-pilot complete!',
-                                    `All ${cState.tasks.filter(t => t.status === 'completed').length} tasks finished.`,
+                                    summary,
                                     { sessionId: session.client.sessionId }
                                 );
                             }
 
-                            // Update Live Activity to waiting
-                            updateLiveActivity('waiting');
-
                             const options = parseOptions(lastAssistantText);
                             const hasOptions = options.length > 0;
+                            const plainText = lastAssistantText
+                                .replace(/<options>[\s\S]*<\/options>/g, '')
+                                .replace(/```[\s\S]*?```/g, '[code]')
+                                .replace(/[*_~`#>\[\]]/g, '')
+                                .replace(/\n+/g, ' ')
+                                .trim();
                             const body = hasOptions
                                 ? options.map((opt, i) => `${i + 1}. ${opt}`).join('\n')
-                                : 'Claude is waiting for your command';
+                                : plainText.length > 0
+                                    ? plainText.slice(0, 200) + (plainText.length > 200 ? '...' : '')
+                                    : 'Claude is waiting for your command';
                             session.api.push().sendToAllDevices(
                                 'It\'s ready!',
                                 body,
@@ -588,6 +565,8 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                 }
             } catch (e) {
                 logger.debug('[remote]: launch error', e);
+                // Mark any running coordinator task as failed
+                coordinator.markCurrentFailed(e instanceof Error ? e.message : 'Process exited unexpectedly');
                 if (!exitReason) {
                     session.client.closeClaudeSessionTurn('failed');
                     session.client.sendSessionEvent({ type: 'message', message: 'Process exited unexpectedly' });
@@ -624,12 +603,6 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
             }
         }
     } finally {
-
-        // End Live Activity and close APNs connection
-        if (liveActivityToken && apnsClient.isAvailable) {
-            await apnsClient.end(liveActivityToken);
-        }
-        apnsClient.destroy();
 
         // Clean up permission handler
         permissionHandler.reset();
