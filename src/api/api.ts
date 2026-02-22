@@ -285,6 +285,25 @@ export class ApiClient {
     return this.pushClient;
   }
 
+  async postFeedItem(body: Record<string, any>, repeatKey?: string): Promise<void> {
+    try {
+      await axios.post(
+        `${configuration.serverUrl}/v1/feed`,
+        { body, repeatKey },
+        {
+          headers: {
+            'Authorization': `Bearer ${this.credential.token}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 5000
+        }
+      );
+      logger.debug('[API] Feed item posted successfully');
+    } catch (error) {
+      logger.debug('[API] Failed to post feed item:', error);
+    }
+  }
+
   /**
    * Register a vendor API token with the server
    * The token is sent as a JSON string - server handles encryption

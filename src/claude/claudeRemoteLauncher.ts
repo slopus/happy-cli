@@ -215,6 +215,9 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
     let planModeToolCalls = new Set<string>();
     let ongoingToolCalls = new Map<string, { parentToolCallId: string | null }>();
     let lastAssistantText = '';
+    let sessionTitle = '';
+    let lastResult: any = null;
+    const sessionStartTime = Date.now();
 
     function onMessage(message: SDKMessage) {
 
@@ -245,6 +248,18 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                     if (c.type === 'tool_use') {
                         logger.debug('[remote]: detected tool use ' + c.id! + ' parent: ' + umessage.parent_tool_use_id);
                         ongoingToolCalls.set(c.id!, { parentToolCallId: umessage.parent_tool_use_id ?? null });
+                    }
+                }
+            }
+        }
+
+        // Track session title from change_title MCP calls
+        if (message.type === 'assistant') {
+            const umessage = message as SDKAssistantMessage;
+            if (umessage.message.content && Array.isArray(umessage.message.content)) {
+                for (const c of umessage.message.content) {
+                    if (c.type === 'tool_use' && c.name === 'mcp__happy__change_title' && c.input) {
+                        sessionTitle = (c.input as any).title || sessionTitle;
                     }
                 }
             }
@@ -492,6 +507,24 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                     onResult: (result) => {
                         if (result.total_cost_usd !== undefined) {
                             session.client.sendCostData(result.total_cost_usd, result.usage);
+                        }
+                        lastResult = result;
+
+                        // Post session recap to feed (fire-and-forget)
+                        if (session.client.sessionId) {
+                            const duration = Date.now() - sessionStartTime;
+                            const model = Object.keys(result.modelUsage || {})[0] || 'claude';
+                            session.api.postFeedItem({
+                                kind: 'session_recap',
+                                title: sessionTitle || session.path.split('/').pop() || 'Session',
+                                duration,
+                                cost: result.total_cost_usd || 0,
+                                model,
+                                turns: result.num_turns || 0,
+                                sessionId: session.client.sessionId,
+                            }, `session-recap:${session.client.sessionId}`).catch(err =>
+                                logger.debug('[remote]: Failed to post session recap:', err)
+                            );
                         }
                     },
                     onReady: () => {
