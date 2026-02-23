@@ -219,6 +219,12 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
     let lastResult: any = null;
     const sessionStartTime = Date.now();
 
+    // Track tools/files for session recap summary
+    const filesRead = new Set<string>();
+    const filesModified = new Set<string>();
+    const commandsRun: string[] = [];
+    const toolsUsed = new Set<string>();
+
     function onMessage(message: SDKMessage) {
 
         // Write to message log
@@ -253,13 +259,36 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
             }
         }
 
-        // Track session title from change_title MCP calls
+        // Track session title and tool usage for recap summary
         if (message.type === 'assistant') {
             const umessage = message as SDKAssistantMessage;
             if (umessage.message.content && Array.isArray(umessage.message.content)) {
                 for (const c of umessage.message.content) {
-                    if (c.type === 'tool_use' && c.name === 'mcp__happy__change_title' && c.input) {
-                        sessionTitle = (c.input as any).title || sessionTitle;
+                    if (c.type === 'tool_use') {
+                        const input = c.input as Record<string, any> | undefined;
+
+                        // Track session title
+                        if (c.name === 'mcp__happy__change_title' && input) {
+                            sessionTitle = input.title || sessionTitle;
+                        }
+
+                        // Track tool usage for recap summary
+                        if (c.name) {
+                            toolsUsed.add(c.name);
+                        }
+                        if (input) {
+                            const stripCwd = (p: string) => p.startsWith(session.path) ? p.slice(session.path.length + 1) : p;
+                            if (c.name === 'Read' && input.file_path) {
+                                filesRead.add(stripCwd(input.file_path));
+                            } else if ((c.name === 'Edit' || c.name === 'Write') && input.file_path) {
+                                filesModified.add(stripCwd(input.file_path));
+                            } else if (c.name === 'Bash' && input.command) {
+                                const cmd = String(input.command).length > 120
+                                    ? String(input.command).slice(0, 120) + '...'
+                                    : String(input.command);
+                                commandsRun.push(cmd);
+                            }
+                        }
                     }
                 }
             }
@@ -526,6 +555,12 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                                 outputTokens: result.usage?.output_tokens,
                                 cacheReadTokens: result.usage?.cache_read_input_tokens,
                                 cacheCreationTokens: result.usage?.cache_creation_input_tokens,
+                                summary: {
+                                    filesRead: [...filesRead].slice(0, 20),
+                                    filesModified: [...filesModified].slice(0, 20),
+                                    commands: commandsRun.slice(0, 15),
+                                    toolsUsed: [...toolsUsed],
+                                },
                             }, `session-recap:${session.client.sessionId}`).catch(err =>
                                 logger.debug('[remote]: Failed to post session recap:', err)
                             );
