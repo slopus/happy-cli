@@ -162,24 +162,14 @@ export async function claudeRemote(opts: {
         options: sdkOptions,
     });
 
-    // When resuming an existing session, the Claude Code subprocess replays the last
-    // completed turn's messages (init + assistant + result) before processing the new
-    // user message. Without this flag, those replayed messages get forwarded to the
-    // mobile app as if they're the response to the current question, causing a
-    // "shift by one" bug where each answer belongs to the previous question.
-    let isReplayPhase = !!startFrom;
-
     updateThinking(true);
     try {
-        logger.debug(`[claudeRemote] Starting to iterate over response (replay phase: ${isReplayPhase})`);
+        logger.debug(`[claudeRemote] Starting to iterate over response`);
 
         for await (const message of response) {
             logger.debugLargeJson(`[claudeRemote] Message ${message.type}`, message);
 
-            // During replay phase, don't forward messages to the mobile app
-            if (!isReplayPhase) {
-                opts.onMessage(message);
-            }
+            opts.onMessage(message);
 
             // Handle special system messages
             if (message.type === 'system' && message.subtype === 'init') {
@@ -201,15 +191,6 @@ export async function claudeRemote(opts: {
 
             // Handle result messages
             if (message.type === 'result') {
-                // During replay phase, the first result is from the previous session turn.
-                // Skip it entirely - don't call onReady/onResult/nextMessage.
-                // The real response to the current user message will follow in the stream.
-                if (isReplayPhase) {
-                    logger.debug('[claudeRemote] Skipping replayed result from session resume');
-                    isReplayPhase = false;
-                    continue;
-                }
-
                 updateThinking(false);
                 logger.debug('[claudeRemote] Result received, exiting claudeRemote');
 
