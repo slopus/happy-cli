@@ -89,6 +89,8 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
         }
 
         // Run local mode
+        let launchAttempts = 0;
+        const MAX_LAUNCH_ATTEMPTS = 3;
         while (true) {
             // If we already have an exit reason, return it
             if (exitReason) {
@@ -96,7 +98,8 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
             }
 
             // Launch
-            logger.debug('[local]: launch');
+            launchAttempts++;
+            logger.debug(`[local]: launch (attempt ${launchAttempts}/${MAX_LAUNCH_ATTEMPTS})`);
             try {
                 await claudeLocal({
                     path: session.path,
@@ -115,15 +118,23 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
                 // For example we don't want to pass --resume flag after first spawn
                 session.consumeOneTimeFlags();
 
-                // Normal exit
+                // Normal exit - reset attempts on successful run
+                launchAttempts = 0;
                 if (!exitReason) {
                     exitReason = 'exit';
                     break;
                 }
             } catch (e) {
-                logger.debug('[local]: launch error', e);
+                const errorMsg = e instanceof Error ? e.message : String(e);
+                logger.debug(`[local]: launch error (attempt ${launchAttempts}): ${errorMsg}`);
                 if (!exitReason) {
-                    session.client.sendSessionEvent({ type: 'message', message: 'Process exited unexpectedly' });
+                    if (launchAttempts >= MAX_LAUNCH_ATTEMPTS) {
+                        logger.debug(`[local]: max launch attempts (${MAX_LAUNCH_ATTEMPTS}) reached, giving up`);
+                        session.client.sendSessionEvent({ type: 'message', message: `Local mode failed after ${MAX_LAUNCH_ATTEMPTS} attempts: ${errorMsg}` });
+                        exitReason = 'exit';
+                        break;
+                    }
+                    session.client.sendSessionEvent({ type: 'message', message: `Process exited unexpectedly: ${errorMsg}. Retrying...` });
                     continue;
                 } else {
                     break;

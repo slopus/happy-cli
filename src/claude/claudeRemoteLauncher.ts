@@ -522,6 +522,10 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                                 model,
                                 turns: result.num_turns || 0,
                                 sessionId: session.client.sessionId,
+                                inputTokens: result.usage?.input_tokens,
+                                outputTokens: result.usage?.output_tokens,
+                                cacheReadTokens: result.usage?.cache_read_input_tokens,
+                                cacheCreationTokens: result.usage?.cache_creation_input_tokens,
                             }, `session-recap:${session.client.sessionId}`).catch(err =>
                                 logger.debug('[remote]: Failed to post session recap:', err)
                             );
