@@ -217,19 +217,49 @@ export async function claudeLocal(opts: {
             // Prepare environment variables
             // Note: Local mode uses global Claude installation with --session-id flag
             // Launcher only intercepts fetch for thinking state tracking
-            const env = {
+            const env: Record<string, string | undefined> = {
                 ...process.env,
                 ...opts.claudeEnvVars
             }
+            // Remove Claude Code nesting detection vars that may linger from SDK remote mode.
+            // The SDK sets CLAUDE_CODE_ENTRYPOINT in process.env (query.ts:282-283),
+            // which persists after remote mode ends. If passed to the local Claude CLI,
+            // it causes Claude to think it's running nested inside another session and exit.
+            delete env.CLAUDECODE
+            delete env.CLAUDE_CODE_ENTRYPOINT
 
             logger.debug(`[ClaudeLocal] Spawning launcher: ${claudeCliPath}`);
             logger.debug(`[ClaudeLocal] Args: ${JSON.stringify(args)}`);
 
+            const spawnTime = Date.now();
             const child = spawn('node', [claudeCliPath, ...args], {
                 stdio: ['inherit', 'inherit', 'inherit', 'pipe'],
                 signal: opts.abort,
                 cwd: opts.path,
                 env,
+            });
+
+            // Forward signals to child process to prevent orphaned processes
+            // Fix for issue #11 / GitHub slopus/happy#430
+            // Note: signal: opts.abort handles programmatic abort (mode switching),
+            // but direct OS signals (e.g., kill, Ctrl+C) need explicit forwarding
+            const forwardSignal = (signal: NodeJS.Signals) => {
+                if (child.pid && !child.killed) {
+                    child.kill(signal);
+                }
+            };
+            const onSigterm = () => forwardSignal('SIGTERM');
+            const onSigint = () => forwardSignal('SIGINT');
+            const onSighup = () => forwardSignal('SIGHUP');
+            process.on('SIGTERM', onSigterm);
+            process.on('SIGINT', onSigint);
+            process.on('SIGHUP', onSighup);
+
+            // Cleanup signal handlers when child exits to avoid leaks
+            child.on('exit', () => {
+                process.off('SIGTERM', onSigterm);
+                process.off('SIGINT', onSigint);
+                process.off('SIGHUP', onSighup);
             });
 
             // Listen to the custom fd (fd 3) for thinking state tracking
@@ -300,14 +330,21 @@ export async function claudeLocal(opts: {
                 });
             }
             child.on('error', (error) => {
-                // Ignore
+                logger.debug(`[ClaudeLocal] Process spawn error: ${error.message}`);
             });
             child.on('exit', (code, signal) => {
+                const runtime = Date.now() - spawnTime;
+                logger.debug(`[ClaudeLocal] Process exited: code=${code}, signal=${signal}, runtime=${runtime}ms, aborted=${opts.abort.aborted}`);
                 if (signal === 'SIGTERM' && opts.abort.aborted) {
                     // Normal termination due to abort signal
                     r();
                 } else if (signal) {
                     reject(new Error(`Process terminated with signal: ${signal}`));
+                } else if (code !== 0 && code !== null) {
+                    reject(new Error(`Process exited with code ${code} after ${runtime}ms`));
+                } else if (runtime < 2000 && !opts.abort.aborted) {
+                    // Process exited too quickly (< 2s) - likely a startup failure
+                    reject(new Error(`Process exited suspiciously fast (${runtime}ms) - possible startup failure`));
                 } else {
                     r();
                 }

@@ -784,14 +784,15 @@ export class TmuxUtilities {
             // Build command to execute in the new window
             const fullCommand = args.join(' ');
 
-            // Create new window in session with command and environment variables
-            // IMPORTANT: Don't manually add -t here - executeTmuxCommand handles it via parameters
-            const createWindowArgs = ['new-window', '-n', windowName];
+            // Build full tmux command with all flags BEFORE the shell-command.
+            // tmux stops parsing options at the first positional argument,
+            // so -P, -F, -t, -n, -c, -e must all come before the command string.
+            const fullTmuxCmd = ['tmux', 'new-window', '-t', sessionName, '-n', windowName];
 
             // Add working directory if specified
             if (options.cwd) {
                 const cwdPath = typeof options.cwd === 'string' ? options.cwd : options.cwd.pathname;
-                createWindowArgs.push('-c', cwdPath);
+                fullTmuxCmd.push('-c', cwdPath);
             }
 
             // Add environment variables using -e flag (sets them in the window's environment)
@@ -811,28 +812,23 @@ export class TmuxUtilities {
                         continue;
                     }
 
-                    // Escape value for shell safety
-                    // Must escape: backslashes, double quotes, dollar signs, backticks
-                    const escapedValue = value
-                        .replace(/\\/g, '\\\\')   // Backslash first!
-                        .replace(/"/g, '\\"')     // Double quotes
-                        .replace(/\$/g, '\\$')    // Dollar signs
-                        .replace(/`/g, '\\`');    // Backticks
-
-                    createWindowArgs.push('-e', `${key}="${escapedValue}"`);
+                    // No shell escaping needed: Node.js spawn() passes args directly
+                    // to execve (no shell involved), and tmux -e takes KEY=VALUE literally.
+                    // Wrapping in quotes would make them part of the value.
+                    fullTmuxCmd.push('-e', `${key}=${value}`);
                 }
                 logger.debug(`[TMUX] Setting ${Object.keys(env).length} environment variables in tmux window`);
             }
 
-            // Add the command to run in the window (runs immediately when window is created)
-            createWindowArgs.push(fullCommand);
+            // -P and -F flags MUST come before the shell-command (positional arg)
+            fullTmuxCmd.push('-P', '-F', '#{pane_pid}');
 
-            // Add -P flag to print the pane PID immediately
-            createWindowArgs.push('-P');
-            createWindowArgs.push('-F', '#{pane_pid}');
+            // Shell-command is the last argument (first positional arg for tmux)
+            fullTmuxCmd.push(fullCommand);
 
-            // Create window with command and get PID immediately
-            const createResult = await this.executeTmuxCommand(createWindowArgs, sessionName);
+            // Execute directly (not via executeTmuxCommand which appends -t at the end,
+            // after the positional shell-command where tmux would ignore it)
+            const createResult = await this.executeCommand(fullTmuxCmd);
 
             if (!createResult || createResult.returncode !== 0) {
                 throw new Error(`Failed to create tmux window: ${createResult?.stderr}`);

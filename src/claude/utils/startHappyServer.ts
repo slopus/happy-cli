@@ -12,18 +12,33 @@ import { logger } from "@/ui/logger";
 import { ApiSessionClient } from "@/api/apiSession";
 import { randomUUID } from "node:crypto";
 
+/**
+ * Set the terminal window title using OSC escape sequences.
+ * Works with iTerm2, Terminal.app, and most modern terminal emulators.
+ * Uses OSC 0 which sets both window title and icon name.
+ * Only writes if stdout is a TTY to avoid EPIPE in remote/daemon sessions.
+ */
+function setTerminalTitle(title: string): void {
+    if (process.stdout.isTTY) {
+        process.stdout.write(`\x1b]0;${title}\x07`);
+    }
+}
+
 export async function startHappyServer(client: ApiSessionClient) {
     // Handler that sends title updates via the client
     const handler = async (title: string) => {
         logger.debug('[happyMCP] Changing title to:', title);
         try {
-            // Send title as a summary message, similar to title generator
+            // Set the terminal window title (iTerm2, Terminal.app, etc.)
+            setTerminalTitle(title);
+
+            // Also send title as a summary message to Happy server (for mobile app)
             client.sendClaudeSessionMessage({
                 type: 'summary',
                 summary: title,
                 leafUuid: randomUUID()
             });
-            
+
             return { success: true };
         } catch (error) {
             return { success: false, error: String(error) };

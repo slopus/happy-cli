@@ -3,6 +3,9 @@ const fs = require('fs');
 // Disable autoupdater (never works really)
 process.env.DISABLE_AUTOUPDATER = '1';
 
+// Disable Claude Code's terminal title setting so Happy CLI can control it
+process.env.CLAUDE_CODE_DISABLE_TERMINAL_TITLE = '1';
+
 // Helper to write JSON messages to fd 3
 function writeMessage(message) {
     try {

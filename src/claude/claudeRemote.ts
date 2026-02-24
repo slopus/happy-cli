@@ -10,7 +10,7 @@ import { PushableAsyncIterable } from "@/utils/PushableAsyncIterable";
 import { getProjectPath } from "./utils/path";
 import { awaitFileExist } from "@/modules/watcher/awaitFileExist";
 import { systemPrompt } from "./utils/systemPrompt";
-import { PermissionResult } from "./sdk/types";
+import { PermissionResult, SDKResultMessage } from "./sdk/types";
 import type { JsRuntime } from "./runClaude";
 
 export async function claudeRemote(opts: {
@@ -39,7 +39,8 @@ export async function claudeRemote(opts: {
     onThinkingChange?: (thinking: boolean) => void,
     onMessage: (message: SDKMessage) => void,
     onCompletionEvent?: (message: string) => void,
-    onSessionReset?: () => void
+    onSessionReset?: () => void,
+    onResult?: (result: SDKResultMessage) => void
 }) {
 
     // Check if session is valid
@@ -168,7 +169,6 @@ export async function claudeRemote(opts: {
         for await (const message of response) {
             logger.debugLargeJson(`[claudeRemote] Message ${message.type}`, message);
 
-            // Handle messages
             opts.onMessage(message);
 
             // Handle special system messages
@@ -193,6 +193,11 @@ export async function claudeRemote(opts: {
             if (message.type === 'result') {
                 updateThinking(false);
                 logger.debug('[claudeRemote] Result received, exiting claudeRemote');
+
+                // Forward result with cost data
+                if (opts.onResult) {
+                    opts.onResult(message as SDKResultMessage);
+                }
 
                 // Send completion messages
                 if (isCompactCommand) {

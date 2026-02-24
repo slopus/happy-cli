@@ -342,6 +342,7 @@ export class PermissionHandler {
         this.allowedTools.clear();
         this.allowedBashLiterals.clear();
         this.allowedBashPrefixes.clear();
+        this.permissionMode = 'default';
 
         // Cancel all pending requests
         for (const [, pending] of this.pendingRequests.entries()) {
