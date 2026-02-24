@@ -151,9 +151,14 @@ export class CodexMcpClient {
                 }
 
                 try {
-                    // Request permission through the handler
+                    // Use codex_mcp_tool_call_id for permission request registration
+                    // to match the call_id that will be used in exec_approval_request event
+                    const actualCallId = params.codex_mcp_tool_call_id || params.codex_call_id;
+
+                    // Request permission through the handler using the actual call_id
+                    // that will match the call_id in exec_approval_request event
                     const result = await this.permissionHandler.handleToolCall(
-                        params.codex_call_id,
+                        actualCallId,
                         toolName,
                         {
                             command: params.codex_command,
